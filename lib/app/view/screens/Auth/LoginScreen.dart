@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:ride_match/app/view/screens/Auth/signupScreen.dart'; // Import Google Fonts package
+import 'package:ride_match/app/view/screens/Auth/signupScreen.dart';
+import 'package:ride_match/app/view/screens/document/verificationScreen.dart'; // Import Google Fonts package
 
 class RideMatchLogin extends StatefulWidget {
   const RideMatchLogin({super.key});
@@ -120,7 +121,9 @@ class _RideMatchLoginState extends State<RideMatchLogin> {
                     // Login Button (Gradient)
                     GestureDetector(
                       onTap: () {
-                        // Implement login logic here
+                        Navigator.push(context, MaterialPageRoute(builder: (_){
+                          return Verificationscreen();
+                        }));
                         debugPrint(
                             "Attempting login with: Email/User: ${_emailController.text}");
                       },

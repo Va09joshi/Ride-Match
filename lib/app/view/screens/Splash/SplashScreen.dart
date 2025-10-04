@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:ride_match/app/view/screens/Auth/LoginScreen.dart';
+import 'package:ride_match/app/view/screens/Dash/Home/HomeScreen.dart';
 import 'package:ride_match/app/view/screens/document/verificationScreen.dart';
 
 // Replace with your home screen widget
@@ -22,7 +23,7 @@ class _SplashscreenState extends State<Splashscreen> {
     Timer(const Duration(seconds: 2), () {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => RideMatchLogin()),
+        MaterialPageRoute(builder: (context) => Homescreen()),
       );
     });
   }
@@ -36,9 +37,9 @@ class _SplashscreenState extends State<Splashscreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              "assets/images/logo.jpg",
-              width: 300,
-              height: 400,
+              "assets/images/logo2.png",
+              width: 200,
+              height: 200,
             ),
           ],
         ),
