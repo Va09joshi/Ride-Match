@@ -23,7 +23,14 @@ const registerUser = async (req, res) => {
       success: true,
       message: 'User created successfully',
       token,
-      user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        createdAt: user.createdAt,
+      },
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -46,7 +53,14 @@ const loginUser = async (req, res) => {
       success: true,
       message: 'Login successful',
       token,
-      user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        createdAt: user.createdAt,
+      },
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -61,11 +75,64 @@ const getUserProfile = async (req, res) => {
 
     res.json({
       success: true,
-      user: { id: user._id, name: user.name, email: user.email, phone: user.phone },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        createdAt: user.createdAt,
+      },
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// ----------------- UPDATE USER PROFILE -----------------
+const updateUserProfile = async (req, res) => {
+  const { name, email, phone, password } = req.body;
+
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (email && email !== user.email) {
+      const existing = await User.findOne({ email });
+      if (existing && existing._id.toString() !== user._id.toString()) {
+        return res.status(400).json({ success: false, message: 'Email already in use' });
+      }
+      user.email = email;
+    }
+
+    if (typeof name === 'string') user.name = name;
+    if (typeof phone === 'string') user.phone = phone;
+
+    if (typeof password === 'string' && password.trim().length > 0) {
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password.trim(), salt);
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: 'Failed to update profile' });
   }
 };
 
@@ -129,6 +196,7 @@ module.exports = {
   registerUser, 
   loginUser, 
   getUserProfile, 
+  updateUserProfile,
   sendOTP, 
   verifyOTP, 
   resetPassword 

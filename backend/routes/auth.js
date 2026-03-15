@@ -8,6 +8,7 @@ const {
   registerUser,
   loginUser,
   getUserProfile,
+  updateUserProfile,
   sendOTP,
   verifyOTP,
   resetPassword
@@ -17,6 +18,7 @@ const {
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.get('/me', auth, getUserProfile);
+router.put('/update-profile', auth, updateUserProfile);
 
 
 
