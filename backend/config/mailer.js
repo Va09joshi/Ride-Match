@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const dns = require('dns');
 require('dotenv').config();
 
 let transporter;
@@ -24,10 +25,12 @@ const getTransporter = () => {
         port: smtpPort,
         secure: smtpPort === 465,
         requireTLS: smtpPort !== 465,
-        family: 4,
         connectionTimeout: 15000,
         greetingTimeout: 15000,
         socketTimeout: 20000,
+        lookup: (hostname, options, callback) => {
+          dns.lookup(hostname, { family: 4, all: false }, callback);
+        },
         auth: {
           user: smtpUser,
           pass: smtpPass,
@@ -38,10 +41,12 @@ const getTransporter = () => {
       }
     : {
         service: smtpService,
-        family: 4,
         connectionTimeout: 15000,
         greetingTimeout: 15000,
         socketTimeout: 20000,
+        lookup: (hostname, options, callback) => {
+          dns.lookup(hostname, { family: 4, all: false }, callback);
+        },
         auth: {
           user: smtpUser,
           pass: smtpPass,
