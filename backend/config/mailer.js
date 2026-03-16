@@ -18,18 +18,30 @@ const getTransporter = () => {
     throw new Error('Email service is not configured. Set SMTP_HOST or SMTP_SERVICE together with SMTP_USER and SMTP_PASS.');
   }
 
-  const transportConfig = smtpService
+  const transportConfig = smtpHost
     ? {
-        service: smtpService,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        requireTLS: smtpPort !== 465,
+        family: 4,
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 20000,
         auth: {
           user: smtpUser,
           pass: smtpPass,
         },
+        tls: {
+          servername: smtpHost,
+        },
       }
     : {
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465,
+        service: smtpService,
+        family: 4,
+        connectionTimeout: 15000,
+        greetingTimeout: 15000,
+        socketTimeout: 20000,
         auth: {
           user: smtpUser,
           pass: smtpPass,
