@@ -22,6 +22,7 @@ class NotificationService {
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   String? _userId;
+  bool _audioReady = false;
 
   // Reactive unread count — listen to this stream
   final StreamController<int> _unreadController =
@@ -48,6 +49,7 @@ class NotificationService {
 
     // Fetch current unread count from REST
     await refreshUnreadCount();
+    await _prepareAudio();
 
     // Open Socket.IO connection
     if (_socket != null && _socket!.connected) return;
@@ -96,11 +98,26 @@ class NotificationService {
 
   Future<void> _playSound() async {
     try {
+      if (!_audioReady) {
+        await _prepareAudio();
+      }
       // Try the bundled asset first; falls back silently if not found
       await _audioPlayer.play(AssetSource('sounds/notification.mp3'));
     } catch (_) {
-      // Tactile fallback on devices where audio asset is absent
+      // Fallback for devices where media playback is blocked.
+      SystemSound.play(SystemSoundType.click);
       HapticFeedback.mediumImpact();
+    }
+  }
+
+  Future<void> _prepareAudio() async {
+    if (_audioReady) return;
+    try {
+      await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+      await _audioPlayer.setVolume(1.0);
+      _audioReady = true;
+    } catch (_) {
+      _audioReady = false;
     }
   }
 

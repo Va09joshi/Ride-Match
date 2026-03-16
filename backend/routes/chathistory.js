@@ -23,7 +23,7 @@ router.get("/:userId", async (req, res) => {
         _id: chat._id,
         receiverId: otherUserId,
         receiverName: otherUser?.name || "Unknown",
-        receiverProfile: otherUser?.profile || "https://i.pravatar.cc/150?img=3",
+        receiverProfile: otherUser?.profileImage || "https://i.pravatar.cc/150?img=3",
         lastMessage: chat.lastMessage || "",
         lastMessageTime: chat.lastMessageTime || "",
         unreadCount: chat.unreadCount.get(userId) || 0

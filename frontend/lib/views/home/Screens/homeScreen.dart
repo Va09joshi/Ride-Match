@@ -27,6 +27,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  static const double _nearbyDistanceMeters = 40000; // 40 km
+
   GoogleMapController? mapController;
   LatLng? _currentPosition;
   Set<Marker> _markers = {};
@@ -178,13 +180,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> fetchRides() async {
     setState(() => isLoading = true);
     try {
-      final response = await http.get(AppApi.uri(AppEndpoints.rides));
+      final Uri endpoint = _currentPosition == null
+          ? AppApi.uri(
+              AppEndpoints.rides,
+              queryParameters: {
+                'excludeUserId': currentUserId ?? '',
+              },
+            )
+          : AppApi.uri(
+              AppEndpoints.ridesNearby,
+              queryParameters: {
+                'longitude': _currentPosition!.longitude,
+                'latitude': _currentPosition!.latitude,
+                'maxDistance': 25000,
+                'excludeUserId': currentUserId ?? '',
+              },
+            );
+
+      final response = await http.get(endpoint);
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
+        final rides = (data['rides'] is List) ? data['rides'] as List : <dynamic>[];
 
         setState(() {
-          ridePosts = data['rides'];
+          ridePosts = rides;
           _addRideMarkers();
         });
       }
@@ -256,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ridePos.latitude,
       ridePos.longitude,
     );
-    return distanceMeters <= 25000; // 25 km radius
+    return distanceMeters <= _nearbyDistanceMeters;
   }
 
   // Add all ride markers for upcoming nearby rides
@@ -276,12 +296,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         driverId = ride['driverId']['_id'];
       }
 
-      if (driverId == currentUserId) continue;
+      final isOwnRide = driverId == currentUserId;
       if (!_isUpcomingRide(ride)) continue;
 
       final seats =
           int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
-      if (seats <= 0) continue;
+      if (!isOwnRide && seats <= 0) continue;
 
       final rideFrom = (ride['from'] ?? '').toString().toLowerCase();
       final rideTo = (ride['to'] ?? '').toString().toLowerCase();
@@ -292,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final ridePos = _extractRideLocation(ride);
       if (ridePos == null) continue;
-      if (!_isNearby(ridePos)) continue;
+      if (!isOwnRide && !_isNearby(ridePos)) continue;
 
       final markerId = MarkerId('ride_${ride['_id']}');
 
@@ -303,7 +323,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           icon: rideMarkerIcon ?? BitmapDescriptor.defaultMarker,
           infoWindow: InfoWindow(
             title: "${ride['from']} → ${ride['to']}",
-            snippet: "Rs ${ride['amount']}",
+            snippet:
+                "${isOwnRide ? 'Your Ride • ' : ''}₹${ride['amount']} • ${ride['availableSeats']} seats • ${ride['date']} ${ride['time']}",
             onTap: () => _showRideDetail(ride),
           ),
           onTap: () => _onMarkerTap(ride),
@@ -429,7 +450,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final driverPhone = (ride['driverPhone'] ?? driver?['phone'] ?? '')
             .toString()
             .trim();
-        final bike = ride["bike"] ?? "Bike not listed";
+        final carName = (ride['carDetails']?['name'] ?? '').toString().trim();
+        final carNumber = (ride['carDetails']?['number'] ?? '').toString().trim();
+        final carColor = (ride['carDetails']?['color'] ?? '').toString().trim();
+        final vehicleInfo = [carName, carNumber, carColor]
+          .where((v) => v.isNotEmpty)
+          .join(' • ');
         final seats = (ride["availableSeats"] ?? ride["seats"] ?? 1).toString();
         final rideStatus = (ride['status'] ?? 'created')
             .toString()
@@ -475,12 +501,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     CircleAvatar(
                       radius: 26,
                       backgroundImage: NetworkImage(
-                        (driver?['profileImage'] ?? '')
+                        (_rideDriverImage(ride) ?? '')
                                 .toString()
                                 .trim()
                                 .isEmpty
                             ? AppConstant.defaultProfileImage
-                            : driver['profileImage'].toString(),
+                            : _rideDriverImage(ride)!,
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -499,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            bike,
+                            vehicleInfo.isEmpty ? 'Vehicle not listed' : vehicleInfo,
                             style: GoogleFonts.dmSans(
                               fontSize: 15,
                               color: Colors.black54,
@@ -941,10 +967,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         CircleAvatar(
                           radius: 22,
                           backgroundColor: Colors.grey[200],
-                          child: _buildDriverAvatar(
-                            _selectedMarkerData?['driver'] ??
-                                _selectedMarkerData?['driverId']?['name'],
-                          ),
+                          backgroundImage: (() {
+                            final img = _rideDriverImage(_selectedMarkerData);
+                            if (img == null || img.isEmpty) return null;
+                            return NetworkImage(img);
+                          })(),
+                          child: (_rideDriverImage(_selectedMarkerData) == null ||
+                                  _rideDriverImage(_selectedMarkerData)!.isEmpty)
+                              ? _buildDriverAvatar(
+                                  _selectedMarkerData?['driver'] ??
+                                      _selectedMarkerData?['driverId']?['name'],
+                                )
+                              : null,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -1027,6 +1061,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         fontWeight: FontWeight.w700,
       ),
     );
+  }
+
+  String? _rideDriverImage(dynamic ride) {
+    if (ride is! Map) return null;
+    final direct = (ride['driverImage'] ?? '').toString().trim();
+    if (direct.isNotEmpty) return direct;
+    final driver = ride['driverId'];
+    if (driver is Map) {
+      final nested = (driver['profileImage'] ?? '').toString().trim();
+      if (nested.isNotEmpty) return nested;
+    }
+    return null;
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
@@ -18,6 +19,7 @@ class PostScreen extends StatefulWidget {
 
 class _PostScreenState extends State<PostScreen> {
   String? senderId;
+  Position? _currentPosition;
   List<Map<String, dynamic>> myRequests = [];
   List<Map<String, dynamic>> otherRequests = [];
   bool _loading = true;
@@ -36,7 +38,49 @@ class _PostScreenState extends State<PostScreen> {
     final prefs = await SharedPreferences.getInstance();
     senderId = prefs.getString('userId');
     rejectedLocally = prefs.getStringList('rejectedRequests')?.toSet() ?? {};
+    await _loadCurrentLocation();
     await _fetchRequests();
+  }
+
+  Future<void> _loadCurrentLocation() async {
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) return;
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return;
+      }
+      _currentPosition = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (_) {}
+  }
+
+  DateTime? _requestDateTime(Map<String, dynamic> req) {
+    final rawDate = (req['date'] ?? '').toString().trim();
+    final rawTime = (req['time'] ?? '').toString().trim();
+    if (rawDate.isEmpty || rawTime.isEmpty) return null;
+
+    final dateParts = rawDate.split(RegExp(r'[-/]'));
+    if (dateParts.length != 3) return null;
+    final year = int.tryParse(dateParts[0]);
+    final month = int.tryParse(dateParts[1]);
+    final day = int.tryParse(dateParts[2]);
+    final timeParts = rawTime.split(':');
+    final hour = int.tryParse(timeParts[0]);
+    final minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) : 0;
+
+    if ([year, month, day, hour, minute].contains(null)) return null;
+    return DateTime(year!, month!, day!, hour!, minute!);
+  }
+
+  bool _isUpcomingRequest(Map<String, dynamic> req) {
+    final dt = _requestDateTime(req);
+    if (dt == null) return true;
+    return dt.isAfter(DateTime.now());
   }
 
   Future<void> _fetchRequests() async {
@@ -60,14 +104,15 @@ class _PostScreenState extends State<PostScreen> {
         if (myResp.statusCode == 200) {
           final data = jsonDecode(myResp.body);
           myReqList = List<Map<String, dynamic>>.from(data['requests']);
+          myReqList = myReqList.where(_isUpcomingRequest).toList();
           for (var req in myReqList) {
             final likedBy = req['likedBy'] ?? [];
             liked[req['_id']] = likedBy.contains(senderId);
           }
         }
 
-        double latitude = 22.97882;
-        double longitude = 76.06698;
+        final latitude = _currentPosition?.latitude ?? 22.97882;
+        final longitude = _currentPosition?.longitude ?? 76.06698;
 
         final nearbyResp = await http.get(
           AppApi.uri(
@@ -83,6 +128,7 @@ class _PostScreenState extends State<PostScreen> {
         if (nearbyResp.statusCode == 200) {
           final data = jsonDecode(nearbyResp.body);
           others = List<Map<String, dynamic>>.from(data['requests']);
+          others = others.where(_isUpcomingRequest).toList();
 
           for (var req in others) {
             final likedBy = req['likedBy'] ?? [];
@@ -358,32 +404,70 @@ class _PostScreenState extends State<PostScreen> {
   }
 
   Widget _buildMyRequestCard(Map<String, dynamic> req) {
+    final user = req['userId'];
+    final userName = user is Map ? (user['name'] ?? 'You').toString() : 'You';
+    final userImage = _getUserProfileImage(user);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-          colors: [Colors.green.shade400, Colors.green.shade700],
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.check_circle, color: Colors.white),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              "${req['from']} → ${req['to']}  •  ${req['date']}",
-              style: GoogleFonts.dmSans(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-            ),
+        border: Border.all(color: Colors.green.shade100),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundImage: NetworkImage(userImage),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  userName,
+                  style: GoogleFonts.dmSans(
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  "Your Post",
+                  style: GoogleFonts.dmSans(
+                    fontSize: 11,
+                    color: Colors.green.shade700,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Text(
-            "Your Post",
-            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.white70),
+            "${req['from']} → ${req['to']}  •  ${req['date']} ${req['time']}",
+            style: GoogleFonts.dmSans(
+              color: Colors.black87,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
           ),
         ],
       ),

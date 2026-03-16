@@ -26,6 +26,34 @@ const isUpcomingRide = (ride) => {
   return departure.getTime() > Date.now();
 };
 
+const getRequestDepartureDate = (request) => {
+  const rawDate = (request?.date || '').toString().trim();
+  const rawTime = (request?.time || '').toString().trim();
+  if (!rawDate || !rawTime) return null;
+
+  const dateParts = rawDate.split(/[-/]/);
+  if (dateParts.length !== 3) return null;
+
+  const year = parseInt(dateParts[0], 10);
+  const month = parseInt(dateParts[1], 10);
+  const day = parseInt(dateParts[2], 10);
+  const timeParts = rawTime.split(':');
+  const hour = parseInt(timeParts[0], 10);
+  const minute = timeParts.length > 1 ? parseInt(timeParts[1], 10) : 0;
+
+  if ([year, month, day, hour, minute].some((n) => Number.isNaN(n))) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute);
+};
+
+const isUpcomingRequest = (request) => {
+  const departure = getRequestDepartureDate(request);
+  if (!departure) return true;
+  return departure.getTime() > Date.now();
+};
+
 // -------------------------------------------------------
 // CREATE RIDE
 // -------------------------------------------------------
@@ -433,9 +461,12 @@ exports.getUserRequests = async (req, res) => {
 
     const requests = await RideRequest.find({ userId })
       .populate("rideId")
-      .populate("userId", "name email");
+      .populate("userId", "name email profileImage")
+      .sort({ createdAt: -1 });
 
-    res.status(200).json({ success: true, count: requests.length, requests });
+    const upcomingRequests = requests.filter((request) => isUpcomingRequest(request));
+
+    res.status(200).json({ success: true, count: upcomingRequests.length, requests: upcomingRequests });
 
   } catch (error) {
     console.error('Error fetching user requests:', error);
@@ -454,6 +485,7 @@ exports.getNearbyRideRequests = async (req, res) => {
       return res.status(400).json({ success: false, message: "Longitude & Latitude required" });
 
     const requests = await RideRequest.find({
+      status: 'requested',
       location: {
         $near: {
           $geometry: { type: "Point", coordinates: [parseFloat(longitude), parseFloat(latitude)] },
@@ -461,10 +493,21 @@ exports.getNearbyRideRequests = async (req, res) => {
         },
       },
     })
+      .sort({ createdAt: -1 })
       .populate("rideId")
-      .populate("userId", "name email");
+      .populate("userId", "name email profileImage");
 
-    res.status(200).json({ success: true, requests });
+    const upcomingRequests = requests.filter((request) => isUpcomingRequest(request));
+
+    const expiredRequestedIds = requests
+      .filter((request) => !isUpcomingRequest(request))
+      .map((request) => request._id);
+
+    if (expiredRequestedIds.length > 0) {
+      await RideRequest.deleteMany({ _id: { $in: expiredRequestedIds }, status: 'requested' });
+    }
+
+    res.status(200).json({ success: true, requests: upcomingRequests });
 
   } catch (err) {
     console.error("Nearby Request Error:", err);

@@ -723,32 +723,12 @@ class _RideScreenState extends State<RideScreen> {
 
   Widget _tabContent() {
     if (_selectedTabIndex == 0) {
-      final hasNoMyRideData =
-          _myActiveRides.isEmpty && _incomingRequests.isEmpty;
+      final hasNoMyRideData = _myActiveRides.isEmpty;
       if (hasNoMyRideData) {
         return _sectionEmpty('No created/active rides by you.');
       }
 
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_myActiveRides.isNotEmpty) ..._myActiveRides.map(_myRideCard),
-          const SizedBox(height: 8),
-          Text(
-            'Nearby Requests',
-            style: GoogleFonts.dmSans(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xff113F67),
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_incomingRequests.isEmpty)
-            _sectionEmpty('No incoming requests right now.')
-          else
-            ..._incomingRequests.map(_incomingRequestCard),
-        ],
-      );
+      return Column(children: _myActiveRides.map(_myRideCard).toList());
     }
 
     if (_selectedTabIndex == 1) {

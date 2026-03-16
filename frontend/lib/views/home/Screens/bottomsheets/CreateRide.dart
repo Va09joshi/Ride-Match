@@ -34,6 +34,12 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   double? currentLat;
   double? currentLng;
 
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
+
   // 🌍 Get Current Location
   Future<void> _getCurrentLocation() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -79,6 +85,15 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   // 🚗 Create Ride
   Future<void> _createRide() async {
     if (!_formKey.currentState!.validate()) return;
+    if (currentLat == null || currentLng == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please enable location and pick current location."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     if (selectedDate == null || selectedTime == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
