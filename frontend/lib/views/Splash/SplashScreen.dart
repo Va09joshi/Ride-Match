@@ -41,10 +41,11 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _checkOnboarding() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     bool? isOnboarded = prefs.getBool('isOnboarded');
-
+    String? token = prefs.getString('token');
     if (!mounted) return;
-
-    if (isOnboarded == true) {
+    if (token != null && token.isNotEmpty) {
+      Navigator.pushReplacementNamed(context, '/home');
+    } else if (isOnboarded == true) {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => LoginScreen()),

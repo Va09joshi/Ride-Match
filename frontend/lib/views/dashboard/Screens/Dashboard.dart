@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:ridematch/utils/app_constant.dart';
+import 'package:http/http.dart' as http;
 
 // Screens
 import 'package:ridematch/services/notification_service.dart';
@@ -16,6 +20,72 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  Widget buildNavItem(IconData icon, String label, int index) {
+    bool active = _currentIndex == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentIndex = index),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (label == "Profile")
+              FutureBuilder<String?>(
+                future: _getProfileImageUrl(),
+                builder: (context, snapshot) {
+                  final url = snapshot.data;
+                  return CircleAvatar(
+                    radius: 15,
+                    backgroundColor: Colors.white,
+                    backgroundImage: url != null && url.isNotEmpty
+                        ? NetworkImage(url)
+                        : AssetImage('assets/images/default_avatar.png')
+                              as ImageProvider,
+                  );
+                },
+              )
+            else
+              Icon(
+                icon,
+                size: 26,
+                color: active
+                    ? const Color(0xff4A70A9)
+                    : const Color(0xff9BB4C0),
+              ),
+            const SizedBox(height: 3),
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: active ? 1 : 0,
+              child: Text(
+                label,
+                style: GoogleFonts.dmSans(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xff4A70A9),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _getProfileImageUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null) return null;
+    final response = await http.get(
+      Uri.parse(AppEndpoints.authMe),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final user = data['user'] ?? data;
+      return user['profileImage']?.toString();
+    }
+    return null;
+  }
+
   int _currentIndex = 0;
   Map<String, dynamic>? bookedRide; // Add this
 
@@ -30,14 +100,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       const PostScreen(),
       const ProfileScreen(),
     ];
-  }
+    // ...existing code...
 
-  void updateBookedRide(Map<String, dynamic> ride) {
-    setState(() {
-      bookedRide = ride;
-      _screens[0] = HomeScreen(bookedRide: bookedRide);
-      _currentIndex = 0; // Switch to Home tab
-    });
+    // ...existing code...
+
+    // ...existing code...
   }
 
   @override
@@ -94,36 +161,5 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget buildNavItem(IconData icon, String label, int index) {
-    bool active = _currentIndex == index;
-
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _currentIndex = index),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              size: 26,
-              color: active ? const Color(0xff4A70A9) : const Color(0xff9BB4C0),
-            ),
-            const SizedBox(height: 3),
-            AnimatedOpacity(
-              duration: const Duration(milliseconds: 200),
-              opacity: active ? 1 : 0,
-              child: Text(
-                label,
-                style: GoogleFonts.dmSans(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xff4A70A9),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // ...existing code...
 }

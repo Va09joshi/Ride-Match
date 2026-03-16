@@ -397,155 +397,187 @@ class _PostScreenState extends State<PostScreen> {
     final userImage = _getUserProfileImage(user);
     final requestId = request['_id'];
     liked.putIfAbsent(requestId, () => false);
+    // Persist liked state locally
+    Future<void> _persistLike(String reqId) async {
+      final prefs = await SharedPreferences.getInstance();
+      final likedList = prefs.getStringList('likedRequests') ?? [];
+      if (!likedList.contains(reqId)) {
+        likedList.add(reqId);
+        await prefs.setStringList('likedRequests', likedList);
+      }
+    }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundImage: NetworkImage(userImage),
+    Future<bool> _isLikedPersisted(String reqId) async {
+      final prefs = await SharedPreferences.getInstance();
+      final likedList = prefs.getStringList('likedRequests') ?? [];
+      return likedList.contains(reqId);
+    }
+
+    return FutureBuilder<bool>(
+      future: _isLikedPersisted(requestId),
+      builder: (context, snapshot) {
+        final isLikedPersisted = snapshot.data ?? liked[requestId]!;
+        return Container(
+          margin: const EdgeInsets.only(bottom: 18),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
-              const SizedBox(width: 14),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text(
-                    userName,
-                    style: GoogleFonts.dmSans(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 17,
-                    ),
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundImage: NetworkImage(userImage),
                   ),
-                  Text(
-                    "${request['date']} • ${request['time']}",
-                    style: GoogleFonts.dmSans(
-                      fontSize: 13,
-                      color: Colors.black54,
+                  const SizedBox(width: 14),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        style: GoogleFonts.dmSans(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 17,
+                        ),
+                      ),
+                      Text(
+                        "${request['date']} • ${request['time']}",
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: isLikedPersisted
+                        ? null
+                        : () async {
+                            setState(() => liked[requestId] = true);
+                            await _sendLikeNotification(
+                              userId,
+                              requestId,
+                              true,
+                            );
+                            await _persistLike(requestId);
+                          },
+                    child: Icon(
+                      (isLikedPersisted || liked[requestId]!)
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      color: (isLikedPersisted || liked[requestId]!)
+                          ? Colors.red
+                          : Colors.grey,
+                      size: 28,
                     ),
                   ),
                 ],
               ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () async {
-                  bool newState = !liked[requestId]!;
-                  setState(() => liked[requestId] = newState);
-                  await _sendLikeNotification(userId, requestId, newState);
-                },
-                child: Icon(
-                  liked[requestId]! ? Icons.favorite : Icons.favorite_border,
-                  color: liked[requestId]! ? Colors.red : Colors.grey,
-                  size: 28,
-                ),
+              const SizedBox(height: 16),
+              _locationBox(request),
+              const SizedBox(height: 10),
+              Text(
+                request['note'] ?? '',
+                style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black87),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _locationBox(request),
-          const SizedBox(height: 10),
-          Text(
-            request['note'] ?? '',
-            style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black87),
-          ),
-          const SizedBox(height: 16),
-          const SizedBox(height: 16),
-
-          // 🔹 CHAT BUTTON
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xff113F67),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () {
-                if (senderId == null) return;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        ChatScreen(senderId: senderId!, receiverId: userId),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
-              label: Text(
-                "Chat",
-                style: GoogleFonts.dmSans(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          // 🔹 ACCEPT / REJECT BUTTONS
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: decisionStatus[requestId] == "pending"
-                      ? () => _respondToRequest(request, "rejected")
-                      : null,
-                  child: Text(
-                    "Reject",
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
+              const SizedBox(height: 16),
+              // Modern UI divider
+              Divider(color: Colors.grey.shade300, thickness: 1),
+              // 🔹 CHAT BUTTON
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
+                    backgroundColor: const Color(0xff113F67),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                  onPressed: decisionStatus[requestId] == "pending"
-                      ? () => _respondToRequest(request, "accepted")
-                      : null,
-                  child: Text(
-                    "Accept",
+                  onPressed: () {
+                    if (senderId == null) return;
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ChatScreen(senderId: senderId!, receiverId: userId),
+                      ),
+                    );
+                  },
+                  icon: const Icon(
+                    Icons.chat_bubble_outline,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    "Chat",
                     style: GoogleFonts.dmSans(
+                      fontSize: 15,
                       fontWeight: FontWeight.w600,
                       color: Colors.white,
                     ),
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              // 🔹 ACCEPT / REJECT BUTTONS
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: decisionStatus[requestId] == "pending"
+                          ? () => _respondToRequest(request, "rejected")
+                          : null,
+                      child: Text(
+                        "Reject",
+                        style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: decisionStatus[requestId] == "pending"
+                          ? () => _respondToRequest(request, "accepted")
+                          : null,
+                      child: Text(
+                        "Accept",
+                        style: GoogleFonts.dmSans(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 

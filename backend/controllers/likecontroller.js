@@ -12,17 +12,15 @@ exports.likeRequest = async (req, res) => {
 
     const alreadyLiked = request.likedBy.includes(userId);
 
-    let type = "";
     if (alreadyLiked) {
-      // UNLIKE
-      request.likedBy.pull(userId);
-      type = "unlike";
-    } else {
-      // LIKE
-      request.likedBy.push(userId);
-      type = "like";
+      // Already liked, do nothing
+      return res.json({
+        message: "Already liked",
+        type: "like"
+      });
     }
-
+    // LIKE
+    request.likedBy.push(userId);
     await request.save();
 
     // Create notification
@@ -30,13 +28,13 @@ exports.likeRequest = async (req, res) => {
       senderId: userId,
       receiverId: request.userId,
       requestId,
-      type,
-      message: type === "like" ? "liked your post" : "unliked your post"
+      type: "like",
+      message: "liked your post"
     });
 
     return res.json({
-      message: type === "like" ? "Post liked" : "Post unliked",
-      type
+      message: "Post liked",
+      type: "like"
     });
 
   } catch (err) {
