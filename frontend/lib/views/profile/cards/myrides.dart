@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/custom/widget/circularbar.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRide.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRequest.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,7 +44,7 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       }
 
       final response = await http.get(
-        Uri.parse("$baseurl/api/rides/user/$userId"),
+        AppApi.uri(AppEndpoints.rideByUser(userId)),
         headers: {"Authorization": "Bearer $token"},
       );
 
@@ -53,7 +54,9 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
           setState(() => ridesCreated = data['rides'] ?? []);
         }
       } else {
-        _showError("Failed to fetch rides: ${response.statusCode} ${response.body}");
+        _showError(
+          "Failed to fetch rides: ${response.statusCode} ${response.body}",
+        );
       }
     } catch (e) {
       _showError("Error fetching rides: $e");
@@ -76,7 +79,7 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       }
 
       final response = await http.get(
-        Uri.parse("$baseurl/api/rides/requests/$userId"),
+        AppApi.uri(AppEndpoints.rideRequestsByUser(userId)),
         headers: {"Authorization": "Bearer $token"},
       );
 
@@ -86,7 +89,9 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
           setState(() => rideRequests = data['requests'] ?? []);
         }
       } else {
-        _showError("Failed to fetch ride requests: ${response.statusCode} ${response.body}");
+        _showError(
+          "Failed to fetch ride requests: ${response.statusCode} ${response.body}",
+        );
       }
     } catch (e) {
       _showError("Error fetching ride requests: $e");
@@ -94,7 +99,6 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       if (mounted) setState(() => isLoadingRequests = false);
     }
   }
-
 
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -144,9 +148,21 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
               const SizedBox(height: 16),
               _detailTile(Icons.calendar_today, "Date", ride['date']),
               _detailTile(Icons.access_time, "Time", ride['time']),
-              _detailTile(Icons.event_seat, "Seats", "${ride['availableSeats']}"),
-              _detailTile(Icons.directions_car, "Car", "${ride['carDetails']?['name'] ?? 'Car'}"),
-              _detailTile(Icons.person, "Driver", "${ride['driverName'] ?? 'Driver'}"),
+              _detailTile(
+                Icons.event_seat,
+                "Seats",
+                "${ride['availableSeats']}",
+              ),
+              _detailTile(
+                Icons.directions_car,
+                "Car",
+                "${ride['carDetails']?['name'] ?? 'Car'}",
+              ),
+              _detailTile(
+                Icons.person,
+                "Driver",
+                "${ride['driverName'] ?? 'Driver'}",
+              ),
               const SizedBox(height: 20),
             ],
           ),
@@ -162,7 +178,13 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
         children: [
           Icon(icon, size: 20, color: Colors.blue[700]),
           const SizedBox(width: 16),
-          Text("$title:", style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w600)),
+          Text(
+            "$title:",
+            style: GoogleFonts.dmSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(width: 6),
           Expanded(child: Text(value, style: GoogleFonts.dmSans(fontSize: 15))),
         ],
@@ -192,11 +214,21 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("${ride['from']} → ${ride['to']}",
-                style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.bold)),
+            Text(
+              "${ride['from']} → ${ride['to']}",
+              style: GoogleFonts.dmSans(
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 6),
-            Text("₹${ride['amount'] ?? 0}",
-                style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w600)),
+            Text(
+              "₹${ride['amount'] ?? 0}",
+              style: GoogleFonts.dmSans(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
@@ -215,22 +247,36 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("${request['from']} → ${request['to']}",
-              style: GoogleFonts.dmSans(fontSize: 17, fontWeight: FontWeight.bold)),
+          Text(
+            "${request['from']} → ${request['to']}",
+            style: GoogleFonts.dmSans(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
               Icon(Icons.calendar_today, size: 18, color: Colors.grey),
               const SizedBox(width: 6),
-              Text("${request['date']}", style: GoogleFonts.dmSans(fontSize: 14)),
+              Text(
+                "${request['date']}",
+                style: GoogleFonts.dmSans(fontSize: 14),
+              ),
               const SizedBox(width: 14),
               Icon(Icons.access_time, size: 18, color: Colors.grey),
               const SizedBox(width: 6),
-              Text("${request['time']}", style: GoogleFonts.dmSans(fontSize: 14)),
+              Text(
+                "${request['time']}",
+                style: GoogleFonts.dmSans(fontSize: 14),
+              ),
             ],
           ),
           const SizedBox(height: 8),
-          Text("Note: ${request['note']}", style: GoogleFonts.dmSans(fontSize: 14)),
+          Text(
+            "Note: ${request['note']}",
+            style: GoogleFonts.dmSans(fontSize: 14),
+          ),
         ],
       ),
     );
@@ -262,7 +308,8 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
                 context,
                 MaterialPageRoute(builder: (_) => CreateRideScreen()),
               );
-              if (newRide != null) setState(() => ridesCreated.insert(0, newRide));
+              if (newRide != null)
+                setState(() => ridesCreated.insert(0, newRide));
             },
           ),
           const SizedBox(height: 12),
@@ -282,7 +329,8 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
                   builder: (_) => CreateLocationRequestScreen(rideId: rideId),
                 ),
               );
-              if (newRequest != null) setState(() => rideRequests.insert(0, newRequest));
+              if (newRequest != null)
+                setState(() => rideRequests.insert(0, newRequest));
             },
           ),
         ],
@@ -301,51 +349,67 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
             // ---------- Rides Created ----------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text("Rides Created",
-                  style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold)),
+              child: Text(
+                "Rides Created",
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             isLoadingRides
-                ? Column(
-              children: List.generate(3, (_) => _shimmerRideCard()),
-            )
-
+                ? Column(children: List.generate(3, (_) => _shimmerRideCard()))
                 : ridesCreated.isEmpty
                 ? Padding(
-              padding: const EdgeInsets.all(20),
-              child: Center(
-                  child: Text("No rides created",
-                      style: GoogleFonts.dmSans(color: Colors.grey))),
-            )
+                    padding: const EdgeInsets.all(20),
+                    child: Center(
+                      child: Text(
+                        "No rides created",
+                        style: GoogleFonts.dmSans(color: Colors.grey),
+                      ),
+                    ),
+                  )
                 : Column(
-              children: ridesCreated.map((ride) => _buildRideCard(ride)).toList(),
-            ),
+                    children: ridesCreated
+                        .map((ride) => _buildRideCard(ride))
+                        .toList(),
+                  ),
 
             const SizedBox(height: 24),
 
             // ---------- Ride Requests ----------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text("Ride Requests",
-                  style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold)),
+              child: Text(
+                "Ride Requests",
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
             const SizedBox(height: 10),
 
             isLoadingRequests
                 ? Column(
-              children: List.generate(3, (_) => _shimmerRequestCard()),
-            )
-
+                    children: List.generate(3, (_) => _shimmerRequestCard()),
+                  )
                 : rideRequests.isEmpty
                 ? Padding(
-              padding: const EdgeInsets.all(20),
-              child: Center(
-                  child: Text("No ride requests",
-                      style: GoogleFonts.dmSans(color: Colors.grey))),
-            )
+                    padding: const EdgeInsets.all(20),
+                    child: Center(
+                      child: Text(
+                        "No ride requests",
+                        style: GoogleFonts.dmSans(color: Colors.grey),
+                      ),
+                    ),
+                  )
                 : Column(
-              children: rideRequests.map((r) => _buildRequestCard(r)).toList(),
-            ),
+                    children: rideRequests
+                        .map((r) => _buildRequestCard(r))
+                        .toList(),
+                  ),
 
             const SizedBox(height: 50),
           ],
@@ -402,5 +466,4 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       ),
     );
   }
-
 }

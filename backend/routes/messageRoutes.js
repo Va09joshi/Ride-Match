@@ -1,39 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const Message = require('../models/Message');
-const User = require('../models/user');
+const { createAndDispatchMessage } = require('../helpers/chatMessageHelper');
 
 router.post('/send', async (req, res) => {
   try {
     const { senderId, receiverId, message } = req.body;
 
-    if (!senderId || !receiverId || !message) {
-      return res.status(400).json({ success: false, message: 'senderId, receiverId and message are required' });
-    }
-
-    const [sender, receiver] = await Promise.all([
-      User.findById(senderId).select('name'),
-      User.findById(receiverId).select('name'),
-    ]);
-
-    const newMessage = new Message({ senderId, receiverId, message });
-    await newMessage.save();
+    const data = await createAndDispatchMessage({ senderId, receiverId, message });
 
     res.json({
       success: true,
       message: 'Message sent successfully',
-      data: {
-        _id: newMessage._id,
-        senderId,
-        receiverId,
-        message,
-        createdAt: newMessage.createdAt,
-        senderName: sender?.name || 'User',
-        receiverName: receiver?.name || 'User',
-      },
+      data,
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    const statusCode = err.message?.includes('required') ? 400 : 500;
+    res.status(statusCode).json({ success: false, message: err.message });
   }
 });
 

@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/chats/SocketScreenchat.dart';
 import 'package:ridematch/views/dashboard/Screens/Dashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,7 +41,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   bool _bookingLoading = false;
   bool _bookingInProgress = false;
 
-
   late Razorpay _razorpay;
 
   @override
@@ -55,10 +55,16 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
     // Default pickup/drop
     pickup = widget.rideData['pickupLocation'] != null
-        ? LatLng(widget.rideData['pickupLocation']['lat'], widget.rideData['pickupLocation']['lng'])
+        ? LatLng(
+            widget.rideData['pickupLocation']['lat'],
+            widget.rideData['pickupLocation']['lng'],
+          )
         : const LatLng(28.6139, 77.2090); // Default Delhi
     drop = widget.rideData['dropLocation'] != null
-        ? LatLng(widget.rideData['dropLocation']['lat'], widget.rideData['dropLocation']['lng'])
+        ? LatLng(
+            widget.rideData['dropLocation']['lat'],
+            widget.rideData['dropLocation']['lng'],
+          )
         : const LatLng(28.7041, 77.1025);
 
     fareText = "₹${widget.rideData['amount'] ?? 0}";
@@ -87,12 +93,21 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     });
   }
 
-  double _haversineDistance(double lat1, double lon1, double lat2, double lon2) {
+  double _haversineDistance(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
     const R = 6371; // km
     double dLat = _degToRad(lat2 - lat1);
     double dLon = _degToRad(lon2 - lon1);
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degToRad(lat1)) * cos(_degToRad(lat2)) * sin(dLon / 2) * sin(dLon / 2);
+    double a =
+        sin(dLat / 2) * sin(dLat / 2) +
+        cos(_degToRad(lat1)) *
+            cos(_degToRad(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
     double c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return R * c;
   }
@@ -118,12 +133,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       ),
     ]);
 
-    _polylines.add(Polyline(
-      polylineId: const PolylineId("route"),
-      points: [pickup, drop],
-      width: 5,
-      color: Colors.orangeAccent,
-    ));
+    _polylines.add(
+      Polyline(
+        polylineId: const PolylineId("route"),
+        points: [pickup, drop],
+        width: 5,
+        color: Colors.orangeAccent,
+      ),
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) => _fitCameraToRoute());
   }
@@ -132,8 +149,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     if (_mapController == null) return;
 
     LatLngBounds bounds = LatLngBounds(
-      southwest: LatLng(min(pickup.latitude, drop.latitude), min(pickup.longitude, drop.longitude)),
-      northeast: LatLng(max(pickup.latitude, drop.latitude), max(pickup.longitude, drop.longitude)),
+      southwest: LatLng(
+        min(pickup.latitude, drop.latitude),
+        min(pickup.longitude, drop.longitude),
+      ),
+      northeast: LatLng(
+        max(pickup.latitude, drop.latitude),
+        max(pickup.longitude, drop.longitude),
+      ),
     );
 
     Future.delayed(const Duration(milliseconds: 300), () {
@@ -193,11 +216,19 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         body: '{"rideId":"${widget.rideData['_id']}","seatsBooked":$seats}',
       );
 
-      final payload = response.body.isNotEmpty ? Map<String, dynamic>.from(await Future.value(jsonDecode(response.body))) : <String, dynamic>{};
-      final success = response.statusCode >= 200 && response.statusCode < 300 && payload['success'] == true;
+      final payload = response.body.isNotEmpty
+          ? Map<String, dynamic>.from(
+              await Future.value(jsonDecode(response.body)),
+            )
+          : <String, dynamic>{};
+      final success =
+          response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          payload['success'] == true;
 
       if (!success) {
-        final message = (payload['message'] ?? 'Unable to book ride').toString();
+        final message = (payload['message'] ?? 'Unable to book ride')
+            .toString();
         throw Exception(message);
       }
 
@@ -228,8 +259,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         'email': widget.rideData['driverEmail'] ?? '',
       },
       'external': {
-        'wallets': ['paytm']
-      }
+        'wallets': ['paytm'],
+      },
     };
 
     try {
@@ -256,9 +287,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     }
   }
 
-
-
-
   void _handlePaymentError(PaymentFailureResponse response) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Payment failed: ${response.message}")),
@@ -267,7 +295,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
   void _handleExternalWallet(ExternalWalletResponse response) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("External Wallet selected: ${response.walletName}")),
+      SnackBar(
+        content: Text("External Wallet selected: ${response.walletName}"),
+      ),
     );
   }
 
@@ -291,24 +321,37 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            _paymentBtn(Icons.account_balance_wallet, "Pay via Razorpay", onTap: () {
-              Navigator.pop(context);
-              _openRazorpayCheckout();
-            }),
+            _paymentBtn(
+              Icons.account_balance_wallet,
+              "Pay via Razorpay",
+              onTap: () {
+                Navigator.pop(context);
+                _openRazorpayCheckout();
+              },
+            ),
             const SizedBox(height: 12),
-            _paymentBtn(Icons.money, "Pay with Cash", onTap: () async {
-              Navigator.pop(context);
-              try {
-                final bookingId = await _bookRide();
-                if (!mounted || bookingId == null || bookingId.isEmpty) return;
-                _showRideStartedPopup(bookingId);
-              } catch (error) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
-                );
-              }
-            }),
+            _paymentBtn(
+              Icons.money,
+              "Pay with Cash",
+              onTap: () async {
+                Navigator.pop(context);
+                try {
+                  final bookingId = await _bookRide();
+                  if (!mounted || bookingId == null || bookingId.isEmpty)
+                    return;
+                  _showRideStartedPopup(bookingId);
+                } catch (error) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        error.toString().replaceAll('Exception: ', ''),
+                      ),
+                    ),
+                  );
+                }
+              },
+            ),
             const SizedBox(height: 20),
           ],
         ),
@@ -316,7 +359,11 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     );
   }
 
-  Widget _paymentBtn(IconData icon, String text, {required VoidCallback onTap}) {
+  Widget _paymentBtn(
+    IconData icon,
+    String text, {
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -343,17 +390,23 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final ride = widget.rideData;
-    final car = ride['carDetails'] ?? {'name': 'Car', 'number': 'XXX-000', 'color': 'Black'};
-    final driverImage = ride['driverImage'] ??
-        'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
+    final car =
+        ride['carDetails'] ??
+        {'name': 'Car', 'number': 'XXX-000', 'color': 'Black'};
+    final rawDriverImage =
+        ride['driverImage'] ?? ride['driverId']?['profileImage'] ?? '';
+    final driverImage = rawDriverImage.toString().trim().isEmpty
+        ? AppConstant.defaultProfileImage
+        : rawDriverImage.toString();
     final rating = (ride['rating'] is num)
-      ? (ride['rating'] as num).toDouble()
-      : double.tryParse((ride['rating'] ?? '4.0').toString()) ?? 4.0;
-    final driverName = ride["driverId"]?["name"] ?? ride['driverName'] ?? 'Driver';
+        ? (ride['rating'] as num).toDouble()
+        : double.tryParse((ride['rating'] ?? '4.0').toString()) ?? 4.0;
+    final driverName =
+        ride["driverId"]?["name"] ?? ride['driverName'] ?? 'Driver';
     final driverPhone = ride['driverPhone'] ?? ride['driverId']?['phone'] ?? '';
     final driverId = (ride['driverId'] is Map)
-      ? (ride['driverId']['_id'] ?? '').toString()
-      : (ride['driverId'] ?? '').toString();
+        ? (ride['driverId']['_id'] ?? '').toString()
+        : (ride['driverId'] ?? '').toString();
 
     return Scaffold(
       body: Stack(
@@ -404,20 +457,24 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   Widget _bottomDetails(
-      Map<String, dynamic> ride,
-      Map<String, dynamic> car,
-      String driverId,
-      String driverName,
-      String driverPhone,
-      String driverImage,
-      double rating,
-      ) {
+    Map<String, dynamic> ride,
+    Map<String, dynamic> car,
+    String driverId,
+    String driverName,
+    String driverPhone,
+    String driverImage,
+    double rating,
+  ) {
     final availableSeats = (ride['availableSeats'] is num)
         ? (ride['availableSeats'] as num).toInt()
         : int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
     final price = (ride['amount'] is num)
         ? (ride['amount'] as num).toDouble()
         : double.tryParse((ride['amount'] ?? '0').toString()) ?? 0.0;
+    final rideStatus = (ride['status'] ?? 'created').toString().toLowerCase();
+    final canBook =
+        (rideStatus == 'created' || rideStatus == 'active') &&
+        availableSeats > 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -425,7 +482,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         boxShadow: [
           BoxShadow(
-              blurRadius: 20, color: Colors.black26.withOpacity(0.2), offset: const Offset(0, -4))
+            blurRadius: 20,
+            color: Colors.black26.withOpacity(0.2),
+            offset: const Offset(0, -4),
+          ),
         ],
       ),
       child: Padding(
@@ -436,7 +496,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             Container(
               height: 5,
               width: 60,
-              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(50)),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(50),
+              ),
             ),
             const SizedBox(height: 20),
             _driverCard(driverName, driverPhone, driverImage, rating, driverId),
@@ -450,22 +513,32 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               date: ride['date'],
               time: ride['time'],
               seats: availableSeats,
+              status: rideStatus,
             ),
             const SizedBox(height: 15),
             if (driverId != widget.currentUserId)
               ElevatedButton(
-                onPressed: (_bookingLoading || availableSeats <= 0) ? null : _showPaymentSheet,
+                onPressed: (_bookingLoading || !canBook)
+                    ? null
+                    : _showPaymentSheet,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xff0A2647),
                   minimumSize: const Size(double.infinity, 55),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
                 child: Text(
                   _bookingLoading
                       ? "Booking..."
-                      : (availableSeats <= 0 ? "No Seats Available" : "Book Ride"),
+                      : (!canBook
+                            ? _statusBookButtonLabel(rideStatus, availableSeats)
+                            : "Book Ride"),
                   style: GoogleFonts.dmSans(
-                      fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
                 ),
               ),
           ],
@@ -474,8 +547,16 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     );
   }
 
+  Widget _driverCard(
+    String name,
+    String phone,
+    String image,
+    double rating,
+    String driverId,
+  ) {
+    final hasPhone = phone.trim().isNotEmpty;
+    final hasDriverId = driverId.trim().isNotEmpty;
 
-  Widget _driverCard(String name, String phone, String image, double rating, String driverId) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -495,6 +576,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           CircleAvatar(
             radius: 36,
             backgroundImage: NetworkImage(image),
+            onBackgroundImageError: (_, __) {},
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -525,18 +607,29 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
+                Text(
+                  hasPhone ? phone : 'Phone not available',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () => _launchCaller(phone),
+                        onPressed: hasPhone ? () => _launchCaller(phone) : null,
                         icon: const Icon(Icons.phone, size: 18),
                         label: const Text("Call"),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xff113F67),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 10),
-                          textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                          textStyle: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -547,16 +640,18 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          _openChat(driverId);
-                        },
+                        onPressed: hasDriverId
+                            ? () => _openChat(driverId)
+                            : null,
                         icon: const Icon(Icons.chat, size: 18),
                         label: const Text("Chat"),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xff0A2647),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 10),
-                          textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                          textStyle: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -574,6 +669,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     );
   }
 
+  String _statusBookButtonLabel(String status, int seats) {
+    if (seats <= 0) return 'All seats booked';
+    if (status == 'in_progress') return 'Ride in progress';
+    if (status == 'completed') return 'Ride completed';
+    if (status == 'cancelled') return 'Ride cancelled';
+    return 'Book Ride';
+  }
+
   Widget _tripDetailsSection({
     required String pickup,
     required String drop,
@@ -583,6 +686,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     String? date,
     String? time,
     int? seats,
+    String? status,
   }) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -594,7 +698,13 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("Trip Details", style: GoogleFonts.poppins(fontSize: 17, fontWeight: FontWeight.w600)),
+          Text(
+            "Trip Details",
+            style: GoogleFonts.poppins(
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           const SizedBox(height: 14),
           _infoRow(Icons.location_on, "Pickup", pickup),
           const SizedBox(height: 10),
@@ -615,6 +725,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
             const SizedBox(height: 10),
             _infoRow(Icons.event_seat, "Seats", seats.toString()),
           ],
+          if (status != null && status.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _infoRow(
+              Icons.timelapse,
+              "Status",
+              status.replaceAll('_', ' ').toUpperCase(),
+            ),
+          ],
         ],
       ),
     );
@@ -630,9 +748,18 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54)),
+              Text(
+                label,
+                style: GoogleFonts.poppins(fontSize: 13, color: Colors.black54),
+              ),
               const SizedBox(height: 2),
-              Text(value, style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w600)),
+              Text(
+                value,
+                style: GoogleFonts.poppins(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -663,7 +790,11 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.directions_car, color: Color(0xff0A2647), size: 28),
+              const Icon(
+                Icons.directions_car,
+                color: Color(0xff0A2647),
+                size: 28,
+              ),
               const SizedBox(width: 12),
               Column(
                 mainAxisSize: MainAxisSize.min,
@@ -697,7 +828,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                   ),
                 ],
               ),
-                // Close popup after 2 seconds and navigate
+            ],
           ),
         );
       },
@@ -712,9 +843,4 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       );
     });
   }
-
-
-
-
-
 }

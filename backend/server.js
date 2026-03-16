@@ -5,10 +5,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
-// MODELS
-const Message = require('./models/Message');
-const User = require('./models/user');
-const Chat = require('./models/chat'); // <-- IMPORTANT
+const { createAndDispatchMessage } = require('./helpers/chatMessageHelper');
+
+// Socket manager (must be initialised before controllers that use it)
+const socketManager = require('./config/socketManager');
 
 // ROUTES
 const authRoutes = require('./routes/auth');
@@ -21,6 +21,8 @@ const chatHistoryRoutes = require('./routes/chathistory');
 const likeRoutes = require("./routes/likeRoutes");
 const messageRoutes = require('./routes/messageRoutes');
 const userRoutes = require('./routes/users');
+const paymentRoutes = require('./routes/payments');
+const adminRoutes = require('./routes/admin');
 
 
 
@@ -38,9 +40,10 @@ app.use('/api/messages', messageRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/admin', adminRoutes);
 app.use("/api/chathistory", chatHistoryRoutes);
 app.use("/api/like", likeRoutes);
-app.use("/api/notifications", notificationRoutes);
 
 app.use("/api/ride-request", require("./routes/rideRequestRoutes"));
 
@@ -64,7 +67,9 @@ const io = new Server(server, {
     }
 });
 
-const users = {}; // Track online users
+// Expose io + users map to controllers
+socketManager.setIO(io);
+const users = socketManager.users;
 
 io.on('connection', (socket) => {
   console.log('🟢 User connected:', socket.id);
@@ -82,60 +87,7 @@ io.on('connection', (socket) => {
     console.log(`💬 ${senderId} -> ${receiverId}: ${message}`);
 
     try {
-      // Fetch sender and receiver
-      const sender = await User.findById(senderId);
-      const receiver = await User.findById(receiverId);
-
-      if (!sender || !receiver) {
-        console.log('❌ Sender or receiver not found');
-        return;
-      }
-
-      // 1️ Save message to DB
-      const newMessage = await Message.create({
-        senderId,
-        senderName: sender.name,
-        receiverId,
-        receiverName: receiver.name,
-        message,
-      });
-
-      // 2️ FIND OR CREATE CHAT
-      let chat = await Chat.findOne({
-        users: { $all: [senderId, receiverId] }
-      });
-
-      if (!chat) {
-        chat = new Chat({
-          users: [senderId, receiverId],
-          unreadCount: {
-            [senderId]: 0,
-            [receiverId]: 0
-          }
-        });
-      }
-
-      //  UPDATE CHAT SUMMARY
-      chat.lastMessage = message;
-      chat.lastMessageTime = new Date();
-
-      // Increase unread count for receiver
-      chat.unreadCount.set(receiverId, (chat.unreadCount.get(receiverId) || 0) + 1);
-
-      await chat.save();
-
-      // 4️ Send message to receiver if online
-      const receiverSocket = users[receiverId];
-      if (receiverSocket) {
-        io.to(receiverSocket).emit('receiveMessage', {
-          senderId,
-          senderName: sender.name,
-          receiverName: receiver.name,
-          message,
-          timestamp: newMessage.createdAt,
-        });
-      }
-
+      await createAndDispatchMessage({ senderId, receiverId, message });
     } catch (err) {
       console.error('Error saving message:', err);
     }

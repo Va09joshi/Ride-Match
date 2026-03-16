@@ -22,6 +22,8 @@ const serializeUser = (user) => ({
   email: user.email,
   phone: user.phone,
   profileImage: user.profileImage,
+  role: user.role || 'user',
+  verification: user.verification || {},
   createdAt: user.createdAt,
 });
 

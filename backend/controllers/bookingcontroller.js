@@ -1,5 +1,7 @@
 const Booking = require('../models/Booking');
 const Ride = require('../models/Ride');
+const { syncRideLifecycle } = require('./rideLifecycle');
+const { createNotification } = require('../helpers/notificationHelper');
 
 const generateBookingId = () => {
     const stamp = Date.now().toString(36).toUpperCase();
@@ -41,12 +43,18 @@ const bookRide = async (req, res) => {
         const ride = await Ride.findById(rideId);
         if (!ride) return res.status(404).json({ success: false, message: 'Ride not found' });
 
+        await syncRideLifecycle(ride);
+
         if (ride.status === 'cancelled') {
             return res.status(400).json({ success: false, message: 'This ride is cancelled' });
         }
 
         if (ride.status === 'completed') {
             return res.status(400).json({ success: false, message: 'This ride is already completed' });
+        }
+
+        if (ride.status === 'in_progress') {
+            return res.status(400).json({ success: false, message: 'This ride is already in progress' });
         }
 
         const departure = parseDepartureDate(ride);
@@ -85,8 +93,9 @@ const bookRide = async (req, res) => {
         ride.availableSeats = Number(ride.availableSeats || 0) - seats;
         if (ride.availableSeats <= 0) {
             ride.availableSeats = 0;
-            ride.status = 'completed';
-            ride.completedAt = new Date();
+        }
+        if (ride.status === 'created') {
+            ride.status = 'active';
         }
         await ride.save();
 
@@ -100,9 +109,69 @@ const bookRide = async (req, res) => {
             message: 'Ride booked successfully',
             booking: populated,
         });
+
+        // Notify the driver that someone booked their ride (fire-and-forget)
+        createNotification({
+            senderId: req.user.id,
+            receiverId: ride.driverId.toString(),
+            type: 'ride_booked',
+            message: `Someone booked your ride from ${ride.from} to ${ride.to}.`,
+            relatedId: booking._id.toString(),
+        });
+
+        // Notify the passenger (booking confirmation)
+        createNotification({
+            senderId: ride.driverId.toString(),
+            receiverId: req.user.id,
+            type: 'ride_booked',
+            message: `Your booking for the ride from ${ride.from} to ${ride.to} is confirmed! Booking ID: ${booking.bookingId}`,
+            relatedId: booking._id.toString(),
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
 }
 
-module.exports = { bookRide };
+const getMyBookings = async (req, res) => {
+    try {
+        const bookings = await Booking.find({ user: req.user.id })
+            .sort({ createdAt: -1 })
+            .populate('ride')
+            .populate('driver', 'name email phone profileImage')
+            .populate('user', 'name email phone profileImage');
+
+        for (const booking of bookings) {
+            if (booking.ride) {
+                await syncRideLifecycle(booking.ride);
+            }
+        }
+
+        const summary = {
+            total: bookings.length,
+            created: 0,
+            active: 0,
+            inProgress: 0,
+            completed: 0,
+            cancelled: 0,
+        };
+
+        bookings.forEach((booking) => {
+            const rideStatus = (booking.ride?.status || '').toString().toLowerCase();
+            if (rideStatus === 'created') summary.created += 1;
+            else if (rideStatus === 'active') summary.active += 1;
+            else if (rideStatus === 'in_progress') summary.inProgress += 1;
+            else if (rideStatus === 'completed') summary.completed += 1;
+            else if (rideStatus === 'cancelled') summary.cancelled += 1;
+        });
+
+        return res.status(200).json({
+            success: true,
+            bookings,
+            summary,
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+module.exports = { bookRide, getMyBookings };

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -6,6 +7,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
+import 'package:ridematch/views/chats/SocketScreenchat.dart';
 import 'package:ridematch/views/ride_detail/ridedetails.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
@@ -20,6 +23,8 @@ class RideScreen extends StatefulWidget {
 class _RideScreenState extends State<RideScreen> {
   List<Map<String, dynamic>> _nearbyRides = [];
   List<Map<String, dynamic>> _myActiveRides = [];
+  List<Map<String, dynamic>> _myBookedRides = [];
+  List<Map<String, dynamic>> _incomingRequests = [];
   List<Map<String, dynamic>> _rideHistory = [];
   bool _loading = true;
   bool _refreshing = false;
@@ -35,11 +40,21 @@ class _RideScreenState extends State<RideScreen> {
   int _selectedTabIndex = 0;
 
   static const double _nearbyDistanceMeters = 25000;
+  Timer? _autoRefreshTimer;
 
   @override
   void initState() {
     super.initState();
     _initialize();
+    _startAutoRefresh();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _loading || _refreshing) return;
+      _fetchRides(isRefresh: true);
+    });
   }
 
   Future<void> _initialize() async {
@@ -90,7 +105,45 @@ class _RideScreenState extends State<RideScreen> {
   }
 
   String _rideStatus(Map<String, dynamic> ride) {
-    return (ride['status'] ?? 'active').toString().toLowerCase();
+    return (ride['status'] ?? 'created').toString().toLowerCase();
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'created':
+        return 'Created';
+      case 'active':
+        return 'Active';
+      case 'in_progress':
+        return 'In Progress';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return status.isEmpty ? 'Unknown' : status;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'created':
+        return Colors.blueGrey;
+      case 'active':
+        return Colors.blue;
+      case 'in_progress':
+        return Colors.orange;
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  bool _isLiveStatus(String status) {
+    return status == 'created' || status == 'active' || status == 'in_progress';
   }
 
   LatLng? _extractRideLatLng(Map<String, dynamic> ride) {
@@ -180,6 +233,8 @@ class _RideScreenState extends State<RideScreen> {
 
     try {
       List<Map<String, dynamic>> myRides = [];
+      List<Map<String, dynamic>> bookedRides = [];
+      List<Map<String, dynamic>> incomingRequests = [];
       if (currentUserId != null) {
         final myResponse = await http.get(
           AppApi.uri('/api/rides/user/$currentUserId'),
@@ -187,6 +242,46 @@ class _RideScreenState extends State<RideScreen> {
         if (myResponse.statusCode == 200) {
           final myData = jsonDecode(myResponse.body);
           myRides = _parseRides(myData['rides']);
+        }
+
+        if (_token != null) {
+          final incomingResponse = await http.get(
+            AppApi.uri(AppEndpoints.rideIncoming(currentUserId!)),
+            headers: {'Authorization': 'Bearer $_token'},
+          );
+
+          if (incomingResponse.statusCode == 200) {
+            final incomingPayload = jsonDecode(incomingResponse.body);
+            incomingRequests = _parseRides(incomingPayload['requests']);
+          }
+        }
+      }
+
+      if (_token != null) {
+        final bookingResponse = await http.get(
+          AppApi.uri(AppEndpoints.bookingsMe),
+          headers: {'Authorization': 'Bearer $_token'},
+        );
+
+        if (bookingResponse.statusCode == 200) {
+          final bookingPayload = jsonDecode(bookingResponse.body);
+          final bookingList = _parseRides(bookingPayload['bookings']);
+          bookedRides = bookingList
+              .map((booking) {
+                final ride = booking['ride'];
+                if (ride is Map) {
+                  final rideMap = Map<String, dynamic>.from(ride);
+                  return {
+                    ...rideMap,
+                    'bookingId': booking['bookingId'],
+                    'bookingStatus': booking['status'],
+                    'driverId': booking['driver'] ?? rideMap['driverId'],
+                  };
+                }
+                return <String, dynamic>{};
+              })
+              .where((ride) => ride.isNotEmpty)
+              .toList();
         }
       }
 
@@ -222,8 +317,12 @@ class _RideScreenState extends State<RideScreen> {
       }
 
       nearbyRides = nearbyRides.where((ride) {
-        if (_rideStatus(ride) != 'active') return false;
+        final status = _rideStatus(ride);
+        if (!(status == 'created' || status == 'active')) return false;
         if (_isPastRide(ride)) return false;
+        final seats =
+            int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
+        if (seats <= 0) return false;
         final distance = _distanceKm(ride);
         if (distance == null) return true;
         return distance <= (_nearbyDistanceMeters / 1000);
@@ -237,7 +336,12 @@ class _RideScreenState extends State<RideScreen> {
 
       final activeMyRides = myRides.where((ride) {
         final status = _rideStatus(ride);
-        return status == 'active' && !_isPastRide(ride);
+        return _isLiveStatus(status) && !_isPastRide(ride);
+      }).toList();
+
+      final activeBooked = bookedRides.where((ride) {
+        final status = _rideStatus(ride);
+        return _isLiveStatus(status) && !_isPastRide(ride);
       }).toList();
 
       final history = myRides.where((ride) {
@@ -246,6 +350,15 @@ class _RideScreenState extends State<RideScreen> {
             status == 'completed' ||
             _isPastRide(ride);
       }).toList();
+
+      history.addAll(
+        bookedRides.where((ride) {
+          final status = _rideStatus(ride);
+          return status == 'cancelled' ||
+              status == 'completed' ||
+              _isPastRide(ride);
+        }),
+      );
 
       history.sort((a, b) {
         final aDate =
@@ -258,6 +371,8 @@ class _RideScreenState extends State<RideScreen> {
       if (!mounted) return;
       setState(() {
         _myActiveRides = activeMyRides;
+        _myBookedRides = activeBooked;
+        _incomingRequests = incomingRequests;
         _rideHistory = history;
         _nearbyRides = nearbyRides;
       });
@@ -337,6 +452,95 @@ class _RideScreenState extends State<RideScreen> {
     }
   }
 
+  Future<void> _respondToRequest(
+    Map<String, dynamic> request,
+    String action,
+  ) async {
+    if (_token == null || _token!.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again to continue.')),
+      );
+      return;
+    }
+
+    final rideId = (request['rideId'] is Map)
+        ? (request['rideId']['_id'] ?? '').toString()
+        : (request['rideId'] ?? '').toString();
+    final requesterId = (request['userId'] is Map)
+        ? (request['userId']['_id'] ?? '').toString()
+        : (request['userId'] ?? '').toString();
+
+    if (rideId.isEmpty || requesterId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Invalid request data.')));
+      return;
+    }
+
+    try {
+      final response = await http.patch(
+        AppApi.uri(AppEndpoints.rideRespond(rideId)),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_token',
+        },
+        body: jsonEncode({'userId': requesterId, 'status': action}),
+      );
+
+      final payload = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      final ok = response.statusCode >= 200 && response.statusCode < 300;
+      if (!ok || payload['success'] != true) {
+        throw Exception(
+          (payload['message'] ?? 'Unable to update request').toString(),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        final requestId = (request['_id'] ?? '').toString();
+        _incomingRequests.removeWhere(
+          (item) => (item['_id'] ?? '').toString() == requestId,
+        );
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text((payload['message'] ?? 'Updated').toString())),
+      );
+
+      if (action == 'accepted') {
+        await _openChatWithRequester(request);
+      }
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err.toString().replaceFirst('Exception: ', ''))),
+      );
+    }
+  }
+
+  Future<void> _openChatWithRequester(Map<String, dynamic> request) async {
+    if (currentUserId == null || currentUserId!.isEmpty) return;
+
+    final requesterId = (request['userId'] is Map)
+        ? (request['userId']['_id'] ?? '').toString()
+        : (request['userId'] ?? '').toString();
+
+    if (requesterId.isEmpty || !mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          senderId: currentUserId!,
+          receiverId: requesterId,
+          initialPermissionStatus: ChatPermissionStatus.accepted,
+        ),
+      ),
+    );
+  }
+
   void _goToRideDetails(Map<String, dynamic> ride) {
     if (currentUserId == null) return;
 
@@ -347,7 +551,8 @@ class _RideScreenState extends State<RideScreen> {
         'number': ride['carDetails']?['number'] ?? 'XXX-000',
         'color': ride['carDetails']?['color'] ?? 'Black',
       },
-      'driverImage': ride['driverImage'] ?? '',
+      'driverImage':
+          ride['driverImage'] ?? ride['driverId']?['profileImage'] ?? '',
       'driverName': ride['driverName'] ?? ride['driverId']?['name'] ?? 'Driver',
       'rating': ride['rating'] ?? 4.0,
     };
@@ -383,6 +588,7 @@ class _RideScreenState extends State<RideScreen> {
       body: _loading
           ? _buildShimmerScreen()
           : (_myActiveRides.isEmpty &&
+                _myBookedRides.isEmpty &&
                 _rideHistory.isEmpty &&
                 _nearbyRides.isEmpty)
           ? _emptyView()
@@ -474,7 +680,7 @@ class _RideScreenState extends State<RideScreen> {
   }
 
   Widget _rideTabs() {
-    final tabs = ['My Rides', 'Nearby Rides', 'Ride History'];
+    final tabs = ['My Rides', 'Booked', 'Nearby Rides', 'Ride History'];
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
@@ -517,12 +723,41 @@ class _RideScreenState extends State<RideScreen> {
 
   Widget _tabContent() {
     if (_selectedTabIndex == 0) {
-      return _myActiveRides.isEmpty
-          ? _sectionEmpty('No active rides created by you.')
-          : Column(children: _myActiveRides.map(_myRideCard).toList());
+      final hasNoMyRideData =
+          _myActiveRides.isEmpty && _incomingRequests.isEmpty;
+      if (hasNoMyRideData) {
+        return _sectionEmpty('No created/active rides by you.');
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (_myActiveRides.isNotEmpty) ..._myActiveRides.map(_myRideCard),
+          const SizedBox(height: 8),
+          Text(
+            'Nearby Requests',
+            style: GoogleFonts.dmSans(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xff113F67),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_incomingRequests.isEmpty)
+            _sectionEmpty('No incoming requests right now.')
+          else
+            ..._incomingRequests.map(_incomingRequestCard),
+        ],
+      );
     }
 
     if (_selectedTabIndex == 1) {
+      return _myBookedRides.isEmpty
+          ? _sectionEmpty('No active booked rides yet.')
+          : Column(children: _myBookedRides.map(_bookedRideCard).toList());
+    }
+
+    if (_selectedTabIndex == 2) {
       return _nearbyRides.isEmpty
           ? _sectionEmpty('No nearby rides available right now.')
           : Column(children: _nearbyRides.map(_rideCard).toList());
@@ -550,6 +785,152 @@ class _RideScreenState extends State<RideScreen> {
             fontWeight: FontWeight.w600,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _incomingRequestCard(Map<String, dynamic> request) {
+    final ride = request['rideId'] is Map
+        ? Map<String, dynamic>.from(request['rideId'])
+        : <String, dynamic>{};
+    final user = request['userId'] is Map
+        ? Map<String, dynamic>.from(request['userId'])
+        : <String, dynamic>{};
+
+    final riderName = (user['name'] ?? 'Rider').toString();
+    final riderEmail = (user['email'] ?? '').toString();
+    final riderPhone = (user['phone'] ?? '').toString();
+    final routeFrom = (request['from'] ?? ride['from'] ?? '').toString();
+    final routeTo = (request['to'] ?? ride['to'] ?? '').toString();
+    final note = (request['note'] ?? '').toString().trim();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.orange.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundImage: NetworkImage(
+                  (user['profileImage'] ?? '').toString().trim().isEmpty
+                      ? AppConstant.defaultProfileImage
+                      : user['profileImage'].toString(),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      riderName,
+                      style: GoogleFonts.dmSans(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    if (riderEmail.isNotEmpty)
+                      Text(
+                        riderEmail,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  'REQUESTED',
+                  style: GoogleFonts.dmSans(
+                    color: Colors.orange.shade800,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '$routeFrom → $routeTo',
+            style: GoogleFonts.dmSans(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Preferred: ${request['date'] ?? '-'}  ${request['time'] ?? '-'}',
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
+          ),
+          if (riderPhone.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Phone: $riderPhone',
+                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
+              ),
+            ),
+          if (note.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'Note: $note',
+                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black87),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _respondToRequest(request, 'rejected'),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: Colors.red.shade300),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: Text(
+                    'Reject',
+                    style: GoogleFonts.dmSans(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _respondToRequest(request, 'accepted'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xff113F67),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text(
+                    'Accept',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -604,6 +985,7 @@ class _RideScreenState extends State<RideScreen> {
         ride['carDetails'] ??
         {'name': 'Car', 'number': 'XXX-000', 'color': 'Black'};
     final departure = _departureDate(ride);
+    final status = _rideStatus(ride);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -616,12 +998,33 @@ class _RideScreenState extends State<RideScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "${ride['from']} → ${ride['to']}",
-            style: GoogleFonts.dmSans(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  "${ride['from']} → ${ride['to']}",
+                  style: GoogleFonts.dmSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _statusColor(status).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _statusLabel(status),
+                  style: GoogleFonts.dmSans(
+                    color: _statusColor(status),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           Text(
@@ -687,6 +1090,94 @@ class _RideScreenState extends State<RideScreen> {
     );
   }
 
+  Widget _bookedRideCard(Map<String, dynamic> ride) {
+    final status = _rideStatus(ride);
+    final departure = _departureDate(ride);
+    final driverName = ride['driverId'] is Map
+        ? (ride['driverId']['name'] ?? 'Driver')
+        : 'Driver';
+    final bookingId = (ride['bookingId'] ?? '').toString();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.indigo.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  "${ride['from']} → ${ride['to']}",
+                  style: GoogleFonts.dmSans(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _statusColor(status).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _statusLabel(status),
+                  style: GoogleFonts.dmSans(
+                    color: _statusColor(status),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            bookingId.isEmpty
+                ? 'Booking ID unavailable'
+                : 'Booking ID: $bookingId',
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black87),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Driver: $driverName • Seats left: ${ride['availableSeats'] ?? 0}',
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            departure == null
+                ? 'Departure not set'
+                : 'Departure: ${departure.day.toString().padLeft(2, '0')}-${departure.month.toString().padLeft(2, '0')}-${departure.year} ${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}',
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => _goToRideDetails(ride),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xff113F67),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: const Text(
+                'View Details',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _rideCard(Map<String, dynamic> ride) {
     final car =
         ride['carDetails'] ??
@@ -694,7 +1185,7 @@ class _RideScreenState extends State<RideScreen> {
     final driverImage =
         ride['driverImage'] != null && ride['driverImage'].isNotEmpty
         ? ride['driverImage']
-        : 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
+        : AppConstant.defaultProfileImage;
     final rating = (ride['rating'] is num)
         ? (ride['rating'] as num).toDouble()
         : double.tryParse((ride['rating'] ?? '0').toString()) ?? 0.0;
@@ -858,15 +1349,17 @@ class _RideScreenState extends State<RideScreen> {
     );
   }
 
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
   Widget _historyCard(Map<String, dynamic> ride) {
     final status = _rideStatus(ride);
     final departure = _departureDate(ride);
-    final statusLabel = status == 'cancelled'
-        ? 'Cancelled'
-        : status == 'completed'
-        ? 'Completed'
-        : 'Past Ride';
-    final statusColor = status == 'cancelled' ? Colors.red : Colors.green;
+    final statusLabel = _statusLabel(status);
+    final statusColor = _statusColor(status);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

@@ -16,7 +16,6 @@ class LocationPermissionScreen extends StatefulWidget {
 class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
   bool _isLoading = false;
   LatLng? _currentPosition;
-  GoogleMapController? _mapController;
   final Set<Marker> _markers = {};
 
   Future<void> _requestLocationPermission() async {
@@ -182,9 +181,6 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                               myLocationEnabled: true,
                               myLocationButtonEnabled: true,
                               zoomControlsEnabled: false,
-                              onMapCreated: (GoogleMapController controller) {
-                                _mapController = controller;
-                              },
                             ),
                           ),
                         ),

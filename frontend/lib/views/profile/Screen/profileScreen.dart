@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ridematch/constants/app_routes.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/about/about_app.dart';
 import 'package:ridematch/views/notification/notifications_screen.dart';
 import 'package:ridematch/views/profile/cards/help/HelpCenter.dart';
@@ -61,7 +62,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse("$baseurl/api/auth/me"),
+        AppApi.uri(AppEndpoints.authMe),
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -129,7 +130,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       var request = http.MultipartRequest(
         'POST',
-        Uri.parse('$baseurl/api/profile/upload-profile'),
+        AppApi.uri(AppEndpoints.profileUpload),
       );
 
       request.headers['Authorization'] = 'Bearer $token';
@@ -163,7 +164,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     try {
       final response = await http.put(
-        Uri.parse("$baseurl/api/auth/update-profile"),
+        AppApi.uri(AppEndpoints.authUpdateProfile),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -366,8 +367,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }),
         _optionCard(Icons.wallet_rounded, "Payment Methods", () {
-          Navigator.pushNamed(context, '/payments');
+          Navigator.pushNamed(context, AppRoutes.payments);
         }),
+        if ((userData?['role'] ?? '').toString().toLowerCase() == 'admin')
+          _optionCard(
+            Icons.admin_panel_settings_rounded,
+            "Admin Dashboard",
+            () {
+              Navigator.pushNamed(context, AppRoutes.adminDashboard);
+            },
+          ),
         _optionCard(Icons.support_agent_rounded, "Help Center", () {
           Navigator.push(
             context,

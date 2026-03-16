@@ -2,6 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VerifiedDoc extends StatefulWidget {
   const VerifiedDoc({super.key});
@@ -13,6 +17,9 @@ class VerifiedDoc extends StatefulWidget {
 class _VerifiedDocState extends State<VerifiedDoc> {
   File? aadharFile;
   File? drivingFile;
+  bool _aadharUploading = false;
+  bool _drivingUploading = false;
+  String _verificationStatus = 'not_submitted';
 
   final TextEditingController aadharController = TextEditingController();
   final TextEditingController drivingController = TextEditingController();
@@ -32,6 +39,86 @@ class _VerifiedDocState extends State<VerifiedDoc> {
         }
       });
     }
+  }
+
+  Future<void> _uploadDocument(String type) async {
+    final isAadhar = type == 'aadhar';
+    final number = isAadhar
+        ? aadharController.text.trim()
+        : drivingController.text.trim();
+    final file = isAadhar ? aadharFile : drivingFile;
+
+    if (file == null) {
+      _snack('Please choose a file first.', error: true);
+      return;
+    }
+    if (number.isEmpty) {
+      _snack('Please enter the document number.', error: true);
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    if (token == null || token.isEmpty) {
+      _snack('Please login again.', error: true);
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      if (isAadhar) {
+        _aadharUploading = true;
+      } else {
+        _drivingUploading = true;
+      }
+    });
+
+    try {
+      final request = http.MultipartRequest(
+        'POST',
+        AppApi.uri(AppEndpoints.profileUploadVerification),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.fields['type'] = isAadhar ? 'aadhar' : 'driving_license';
+      request.fields['number'] = number;
+      request.files.add(
+        await http.MultipartFile.fromPath('document', file.path),
+      );
+
+      final streamed = await request.send();
+      final body = await streamed.stream.bytesToString();
+
+      if (streamed.statusCode >= 200 && streamed.statusCode < 300) {
+        _snack('Document uploaded successfully. Verification pending review.');
+        if (mounted) {
+          setState(() {
+            _verificationStatus = 'pending';
+          });
+        }
+      } else {
+        _snack('Upload failed: $body', error: true);
+      }
+    } catch (e) {
+      _snack('Upload failed: $e', error: true);
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        if (isAadhar) {
+          _aadharUploading = false;
+        } else {
+          _drivingUploading = false;
+        }
+      });
+    }
+  }
+
+  void _snack(String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: error ? Colors.red : Colors.green,
+      ),
+    );
   }
 
   @override
@@ -70,9 +157,19 @@ class _VerifiedDocState extends State<VerifiedDoc> {
             ),
             Text(
               "Please upload the following documents to complete your verification",
+              style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Status: ${_verificationStatus.replaceAll('_', ' ').toUpperCase()}",
               style: GoogleFonts.dmSans(
-                fontSize: 13,
-                color: Colors.black54,
+                fontSize: 12,
+                color: _verificationStatus == 'verified'
+                    ? Colors.green
+                    : (_verificationStatus == 'pending'
+                          ? Colors.orange
+                          : Colors.black54),
+                fontWeight: FontWeight.w700,
               ),
             ),
 
@@ -105,7 +202,9 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                       filled: true,
                       fillColor: Colors.grey.shade100,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -119,11 +218,9 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        print("Aadhar Submitted:");
-                        print("Number: ${aadharController.text}");
-                        print("File: ${aadharFile?.path}");
-                      },
+                      onPressed: _aadharUploading
+                          ? null
+                          : () => _uploadDocument('aadhar'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xff113F67),
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -131,7 +228,13 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child:  Text("Submit Aadhar",style: GoogleFonts.dmSans(color: Colors.white,fontWeight: FontWeight.bold),),
+                      child: Text(
+                        _aadharUploading ? 'Uploading...' : 'Submit Aadhar',
+                        style: GoogleFonts.dmSans(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -166,7 +269,9 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                       filled: true,
                       fillColor: Colors.grey.shade100,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide.none,
@@ -180,11 +285,9 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () {
-                        print("Driving License Submitted:");
-                        print("Number: ${drivingController.text}");
-                        print("File: ${drivingFile?.path}");
-                      },
+                      onPressed: _drivingUploading
+                          ? null
+                          : () => _uploadDocument('driving_license'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xff113F67),
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -192,17 +295,22 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child:  Text("Submit Driving License",style: GoogleFonts.dmSans(color: Colors.white,fontWeight: FontWeight.bold),),
+                      child: Text(
+                        _drivingUploading
+                            ? 'Uploading...'
+                            : 'Submit Driving License',
+                        style: GoogleFonts.dmSans(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
 
-
-
             // SUBMIT ALL
-
           ],
         ),
       ),
@@ -274,8 +382,10 @@ class _VerifiedDocState extends State<VerifiedDoc> {
               GestureDetector(
                 onTap: onTap,
                 child: Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
@@ -296,7 +406,7 @@ class _VerifiedDocState extends State<VerifiedDoc> {
                             : Icons.check_circle_rounded,
                         size: 18,
                         color: statusColor,
-                      )
+                      ),
                     ],
                   ),
                 ),

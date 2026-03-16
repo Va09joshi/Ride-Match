@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:ridematch/views/chats/SocketScreenchat.dart';
 
@@ -26,8 +27,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
   }
 
   Future<void> fetchChatHistory() async {
-    final url =
-    Uri.parse('$baseurl/api/chathistory/${widget.userId}');
+    final url = AppApi.uri(AppEndpoints.chatHistory(widget.userId));
     try {
       final res = await http.get(url);
 
@@ -40,8 +40,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             "lastMessage": chat["lastMessage"] ?? "",
             "time": chat["lastMessageTime"] ?? "",
             "unread": chat["unreadCount"] ?? 0,
-            "profile": chat["receiverProfile"] ??
-                "https://i.pravatar.cc/150?img=3",
+            "profile": chat["receiverProfile"] ?? AppConstant.defaultChatAvatar,
             "receiverId": chat["receiverId"],
           };
         }).toList();
@@ -81,19 +80,19 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
           ? _buildShimmerList()
           : chatList.isEmpty
           ? const Center(
-        child: Text(
-          "No chats available",
-          style: TextStyle(color: Colors.grey),
-        ),
-      )
+              child: Text(
+                "No chats available",
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
           : ListView.builder(
-        physics: const BouncingScrollPhysics(),
-        itemCount: chatList.length,
-        itemBuilder: (context, index) {
-          final chat = chatList[index];
-          return _chatTile(chat);
-        },
-      ),
+              physics: const BouncingScrollPhysics(),
+              itemCount: chatList.length,
+              itemBuilder: (context, index) {
+                final chat = chatList[index];
+                return _chatTile(chat);
+              },
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {},
         backgroundColor: const Color(0xff09205f),
@@ -113,12 +112,14 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             color: Colors.black.withOpacity(0.05),
             blurRadius: 8,
             offset: const Offset(0, 3),
-          )
+          ),
         ],
       ),
       child: ListTile(
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ),
         leading: Stack(
           children: [
             CircleAvatar(
@@ -151,10 +152,7 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
         ),
         subtitle: Text(
           chat["lastMessage"],
-          style: GoogleFonts.poppins(
-            fontSize: 13,
-            color: Colors.grey[600],
-          ),
+          style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -163,26 +161,19 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
           children: [
             Text(
               chat["time"],
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                color: Colors.grey[500],
-              ),
+              style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500]),
             ),
             if (chat["unread"] > 0)
               Container(
                 margin: const EdgeInsets.only(top: 6),
-                padding:
-                const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: const Color(0xff09205f),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   chat["unread"].toString(),
-                  style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 11,
-                  ),
+                  style: GoogleFonts.poppins(color: Colors.white, fontSize: 11),
                 ),
               ),
           ],
@@ -218,7 +209,10 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             Shimmer.fromColors(
               baseColor: Colors.grey.shade300,
               highlightColor: Colors.grey.shade100,
-              child: const CircleAvatar(radius: 28, backgroundColor: Colors.white),
+              child: const CircleAvatar(
+                radius: 28,
+                backgroundColor: Colors.white,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -230,7 +224,11 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
                   children: [
                     Container(height: 14, width: 120, color: Colors.white),
                     const SizedBox(height: 8),
-                    Container(height: 12, width: double.infinity, color: Colors.white),
+                    Container(
+                      height: 12,
+                      width: double.infinity,
+                      color: Colors.white,
+                    ),
                   ],
                 ),
               ),

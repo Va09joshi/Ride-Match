@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:shimmer/shimmer.dart';
+import 'package:ridematch/services/notification_service.dart';
 
 class NotificationScreen extends StatefulWidget {
   const NotificationScreen({super.key});
@@ -42,7 +44,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
 
-    final url = Uri.parse("$baseurl/api/notifications/$userId");
+    final url = AppApi.uri(AppEndpoints.notifications(userId!));
 
     try {
       final res = await http.get(
@@ -55,10 +57,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        List<dynamic> list = data['notifications'] ??
-            data['notification'] ??
-            data['data'] ??
-            [];
+        List<dynamic> list =
+            data['notifications'] ?? data['notification'] ?? data['data'] ?? [];
 
         setState(() {
           notifications = List<Map<String, dynamic>>.from(list);
@@ -77,6 +77,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
         loading = false;
       });
     }
+  }
+
+  Future<void> _markRead(String notificationId, int index) async {
+    if (notificationId.isEmpty) return;
+    if (index < 0 || index >= notifications.length) return;
+    if (notifications[index]['isRead'] == true) return;
+
+    await NotificationService.instance.markRead(notificationId);
+    if (!mounted) return;
+    setState(() {
+      notifications[index] = {...notifications[index], 'isRead': true};
+    });
   }
 
   String timeAgo(String isoString) {
@@ -101,7 +113,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
         title: Text(
           "Notifications",
           style: GoogleFonts.dmSans(
-              fontWeight: FontWeight.bold, color: Colors.white),
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
         ),
         backgroundColor: const Color(0xff113F67),
         elevation: 0,
@@ -110,119 +124,204 @@ class _NotificationScreenState extends State<NotificationScreen> {
       ),
       body: loading
           ? ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        itemCount: 6,
-        itemBuilder: (_, __) => _buildShimmerItem(),
-      )
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              itemCount: 6,
+              itemBuilder: (_, __) => _buildShimmerItem(),
+            )
           : RefreshIndicator(
-        onRefresh: _fetchNotifications,
-        child: notifications.isEmpty
-            ? Center(
-          child: Text(
-            "No Notifications",
-            style: GoogleFonts.dmSans(fontSize: 16),
-          ),
-        )
-            : ListView.builder(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 16, vertical: 12),
-          itemCount: notifications.length,
-          itemBuilder: (context, index) {
-            final item = notifications[index];
+              onRefresh: _fetchNotifications,
+              child: notifications.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.notifications_none,
+                            size: 64,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            "No Notifications",
+                            style: GoogleFonts.dmSans(
+                              fontSize: 16,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      itemCount: notifications.length,
+                      itemBuilder: (context, index) {
+                        final item = notifications[index];
+                        final isRead = item['isRead'] == true;
+                        final notifId = (item['_id'] ?? '').toString();
 
-            // Safely handle sender
-            final sender = item["senderId"];
-            final senderName = (sender is Map)
-                ? sender["name"] ?? "Someone"
-                : "Someone";
-            final senderImage = (sender is Map)
-                ? sender["profileImage"] ?? ""
-                : "";
+                        final sender = item["senderId"];
+                        final senderName = (sender is Map)
+                            ? (sender["name"] ?? "Someone").toString()
+                            : "Someone";
+                        final senderImage = (sender is Map)
+                            ? (sender["profileImage"] ?? "").toString()
+                            : "";
 
-            return _buildNotificationItem(
-              image: senderImage,
-              name: senderName,
-              type: item["type"] ?? "info",
-              time: item["createdAt"] != null
-                  ? timeAgo(item["createdAt"])
-                  : "",
-            );
-          },
-        ),
-      ),
+                        return GestureDetector(
+                          onTap: () => _markRead(notifId, index),
+                          child: _buildNotificationItem(
+                            image: senderImage,
+                            name: senderName,
+                            type: (item["type"] ?? "info").toString(),
+                            message: (item["message"] ?? "").toString(),
+                            time: item["createdAt"] != null
+                                ? timeAgo(item["createdAt"].toString())
+                                : "",
+                            isRead: isRead,
+                          ),
+                        );
+                      },
+                    ),
+            ),
     );
+  }
+
+  String _notifIcon(String type) {
+    switch (type) {
+      case 'ride_created':
+        return '🚗';
+      case 'ride_booked':
+        return '✅';
+      case 'ride_cancelled':
+        return '❌';
+      case 'ride_request_accepted':
+        return '🎉';
+      case 'ride_request_declined':
+        return '😔';
+      case 'message_received':
+        return '💬';
+      case 'like':
+        return '❤️';
+      default:
+        return '🔔';
+    }
+  }
+
+  String _notifTitle(String type) {
+    switch (type) {
+      case 'ride_created':
+        return 'Ride Posted';
+      case 'ride_booked':
+        return 'Booking Update';
+      case 'ride_cancelled':
+        return 'Ride Cancelled';
+      case 'ride_request_accepted':
+        return 'Request Accepted';
+      case 'ride_request_declined':
+        return 'Request Declined';
+      case 'message_received':
+        return 'New Message';
+      case 'like':
+        return 'New Like';
+      default:
+        return 'Notification';
+    }
   }
 
   Widget _buildNotificationItem({
     required String image,
     required String name,
     required String type,
+    required String message,
     required String time,
+    required bool isRead,
   }) {
-    String message;
-
-    switch (type) {
-      case "like":
-        message = "$name liked your request post ❤️";
-        break;
-      case "comment":
-        message = "$name commented on your request post 💬";
-        break;
-      default:
-        message = "$name sent you a notification.";
-    }
+    final displayMessage = message.isNotEmpty
+        ? message
+        : '$name sent you a notification.';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isRead ? Colors.white : const Color(0xffEAF1FB),
         borderRadius: BorderRadius.circular(16),
+        border: isRead
+            ? null
+            : Border.all(color: const Color(0xff4A70A9).withOpacity(0.4)),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.12),
+            color: Colors.grey.withOpacity(0.10),
             blurRadius: 8,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundImage: image.isNotEmpty
-                ? NetworkImage(image)
-                : const NetworkImage(
-                "https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png"),
+          // Icon bubble
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: const Color(0xff113F67).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Text(_notifIcon(type), style: const TextStyle(fontSize: 20)),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  children: [
+                    Text(
+                      _notifTitle(type),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xff113F67),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (!isRead)
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 3),
                 Text(
-                  "New Notification",
+                  displayMessage,
                   style: GoogleFonts.dmSans(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Colors.grey[700],
                   ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  message,
-                  style: GoogleFonts.dmSans(
-                      fontSize: 14, color: Colors.grey[700]),
-                ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 5),
                 Text(
                   time,
                   style: GoogleFonts.dmSans(
-                      fontSize: 12, color: Colors.grey[500]),
+                    fontSize: 11,
+                    color: Colors.grey[500],
+                  ),
                 ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
@@ -241,7 +340,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
           Shimmer.fromColors(
             baseColor: Colors.grey[300]!,
             highlightColor: Colors.grey[100]!,
-            child: const CircleAvatar(radius: 24, backgroundColor: Colors.white),
+            child: const CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.white,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -257,7 +359,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 Shimmer.fromColors(
                   baseColor: Colors.grey[300]!,
                   highlightColor: Colors.grey[100]!,
-                  child: Container(height: 12, width: double.infinity, color: Colors.white),
+                  child: Container(
+                    height: 12,
+                    width: double.infinity,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Shimmer.fromColors(
@@ -267,10 +373,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
   }
-
 }

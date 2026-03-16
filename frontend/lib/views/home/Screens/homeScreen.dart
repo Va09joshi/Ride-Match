@@ -7,6 +7,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/services/notification_service.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRequest.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRide.dart';
 import 'package:ridematch/views/home/widgets/map_shimmer.dart';
@@ -32,7 +34,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   BitmapDescriptor? rideMarkerIcon;
   Timer? _rideExpiryTimer;
 
-  bool hasNewNotification = false;
+  // Notification badge driven by NotificationService stream
+  int _unreadNotifCount = 0;
+  StreamSubscription<int>? _unreadSub;
 
   List<dynamic> ridePosts = [];
   String? userName;
@@ -57,12 +61,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     fromController.addListener(_filterRides);
     toController.addListener(_filterRides);
+
+    // Connect notification service and listen to unread count
+    NotificationService.instance.connect().then((_) {
+      _unreadSub = NotificationService.instance.unreadStream.listen((count) {
+        if (mounted) setState(() => _unreadNotifCount = count);
+      });
+      if (mounted) {
+        setState(
+          () => _unreadNotifCount = NotificationService.instance.unreadCount,
+        );
+      }
+    });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      checkNotifications();
+      NotificationService.instance.refreshUnreadCount();
     }
   }
 
@@ -86,9 +102,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await fetchUserData();
     await fetchRides();
 
-    // Check notifications at launch
-    await checkNotifications();
-
     if (widget.bookedRide != null) {
       _addBookedRideMarker(widget.bookedRide!);
     }
@@ -98,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _rideExpiryTimer?.cancel();
     _rideExpiryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (!mounted) return;
-      _addRideMarkers();
+      fetchRides();
     });
   }
 
@@ -127,37 +140,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
-  // CHECK NOTIFICATION BADGE
-  Future<void> checkNotifications() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? token = prefs.getString('token');
-    String? userId = prefs.getString('userId');
-
-    if (userId == null) return;
-
-    final res = await http.get(
-      Uri.parse("$baseurl/api/notifications/$userId"),
-      headers: {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-    );
-
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
-
-      final list = List<Map<String, dynamic>>.from(
-        data['notifications'] ?? data['notification'] ?? data['data'] ?? [],
-      );
-
-      bool hasUnread = list.any((item) => item['read'] == false);
-
-      setState(() {
-        hasNewNotification = hasUnread;
-      });
-    }
-  }
-
   // Load user data from SharedPreferences
   Future<void> _loadUserData() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -175,7 +157,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     try {
       final res = await http.get(
-        Uri.parse('$baseurl/api/user/profile'),
+        AppApi.uri(AppEndpoints.authMe),
         headers: {'Authorization': 'Bearer $token'},
       );
 
@@ -196,7 +178,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> fetchRides() async {
     setState(() => isLoading = true);
     try {
-      final response = await http.get(Uri.parse('$baseurl/api/rides'));
+      final response = await http.get(AppApi.uri(AppEndpoints.rides));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -296,6 +278,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (driverId == currentUserId) continue;
       if (!_isUpcomingRide(ride)) continue;
+
+      final seats =
+          int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
+      if (seats <= 0) continue;
 
       final rideFrom = (ride['from'] ?? '').toString().toLowerCase();
       final rideTo = (ride['to'] ?? '').toString().toLowerCase();
@@ -440,9 +426,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final driver = ride["driverId"];
         final driverName =
             driver?["name"] ?? ride["driver"] ?? "Unknown Driver";
+        final driverPhone = (ride['driverPhone'] ?? driver?['phone'] ?? '')
+            .toString()
+            .trim();
         final bike = ride["bike"] ?? "Bike not listed";
-        final price = ride["amount"] ?? "0";
         final seats = (ride["availableSeats"] ?? ride["seats"] ?? 1).toString();
+        final rideStatus = (ride['status'] ?? 'created')
+            .toString()
+            .toUpperCase();
         final departure = _departureDateTime(Map<String, dynamic>.from(ride));
         final departureText = departure == null
             ? "Not specified"
@@ -483,8 +474,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     // Avatar
                     CircleAvatar(
                       radius: 26,
-                      backgroundColor: Colors.blue.shade50,
-                      child: Icon(Icons.person, color: Colors.blue.shade700),
+                      backgroundImage: NetworkImage(
+                        (driver?['profileImage'] ?? '')
+                                .toString()
+                                .trim()
+                                .isEmpty
+                            ? AppConstant.defaultProfileImage
+                            : driver['profileImage'].toString(),
+                      ),
                     ),
                     const SizedBox(width: 14),
 
@@ -508,6 +505,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               color: Colors.black54,
                             ),
                           ),
+                          const SizedBox(height: 2),
+                          Text(
+                            driverPhone.isEmpty
+                                ? 'Phone not available'
+                                : driverPhone,
+                            style: GoogleFonts.dmSans(
+                              fontSize: 13,
+                              color: Colors.black54,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -522,6 +529,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               _infoTile("Departure", departureText),
               const SizedBox(height: 10),
               _infoTile("Available seats", seats),
+              const SizedBox(height: 10),
+              _infoTile("Ride status", rideStatus.replaceAll('_', ' ')),
               const SizedBox(height: 10),
               _infoTile("Short description", description),
 
@@ -786,25 +795,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: badges.Badge(
-              showBadge: hasNewNotification,
+              showBadge: _unreadNotifCount > 0,
               position: badges.BadgePosition.topEnd(top: -5, end: -5),
               badgeStyle: const badges.BadgeStyle(
                 badgeColor: Colors.red,
                 elevation: 0,
-                padding: EdgeInsets.all(5), // size of dot
+                padding: EdgeInsets.all(5),
               ),
-              badgeContent: const SizedBox.shrink(),
+              badgeContent: _unreadNotifCount > 9
+                  ? const Text(
+                      '9+',
+                      style: TextStyle(color: Colors.white, fontSize: 9),
+                    )
+                  : _unreadNotifCount > 0
+                  ? Text(
+                      _unreadNotifCount.toString(),
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    )
+                  : const SizedBox.shrink(),
               child: const Icon(Icons.notifications, color: Colors.white),
             ),
             onPressed: () {
+              NotificationService.instance.markAllRead();
               Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const NotificationScreen()),
-              ).then((_) {
-                setState(() {
-                  hasNewNotification = false;
-                });
-              });
+              );
             },
           ),
         ],
@@ -1015,7 +1031,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _rideExpiryTimer?.cancel();
+    _unreadSub?.cancel();
     fromController.dispose();
     toController.dispose();
     super.dispose();

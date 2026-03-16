@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // Screens
+import 'package:ridematch/services/notification_service.dart';
 import 'package:ridematch/views/home/Screens/homeScreen.dart';
 import 'package:ridematch/views/post/Screens/postScreen.dart';
 import 'package:ridematch/views/profile/Screen/profileScreen.dart';
@@ -43,49 +44,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final double itemWidth = MediaQuery.of(context).size.width / 4;
 
-    return Scaffold(
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        child: _screens[_currentIndex],
-      ),
-      bottomNavigationBar: Container(
-        height: 80,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 10,
-              offset: Offset(0, -2),
-            ),
-          ],
+    return NotificationOverlayWrapper(
+      child: Scaffold(
+        body: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: _screens[_currentIndex],
         ),
-        child: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 240),
-              curve: Curves.easeOut,
-              bottom: 12,
-              left: _currentIndex * itemWidth + (itemWidth / 2) - 30,
-              child: Container(
-                width: 60,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Color(0xff4A70A9),
-                  borderRadius: BorderRadius.circular(20),
+        bottomNavigationBar: Container(
+          height: 80,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black12,
+                blurRadius: 10,
+                offset: Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOut,
+                bottom: 12,
+                left: _currentIndex * itemWidth + (itemWidth / 2) - 30,
+                child: Container(
+                  width: 60,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Color(0xff4A70A9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
                 ),
               ),
-            ),
-            Row(
-              children: [
-                buildNavItem(Icons.home_rounded, "Home", 0),
-                buildNavItem(Icons.directions_car_rounded, "Ride", 1),
-                buildNavItem(Icons.post_add_rounded, "Post", 2),
-                buildNavItem(Icons.person_rounded, "Profile", 3),
-              ],
-            ),
-          ],
+              Row(
+                children: [
+                  buildNavItem(Icons.home_rounded, "Home", 0),
+                  buildNavItem(Icons.directions_car_rounded, "Ride", 1),
+                  buildNavItem(Icons.post_add_rounded, "Post", 2),
+                  buildNavItem(Icons.person_rounded, "Profile", 3),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

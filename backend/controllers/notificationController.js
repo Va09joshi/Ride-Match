@@ -46,6 +46,16 @@ exports.markAllAsRead = async (req, res) => {
   }
 };
 
+exports.markSingleAsRead = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    await Notification.findByIdAndUpdate(notificationId, { $set: { isRead: true } });
+    res.json({ message: "Marked as read" });
+  } catch (err) {
+    res.status(500).json({ message: "Error", error: err });
+  }
+};
+
 exports.unreadCount = async (req, res) => {
   try {
     const count = await Notification.countDocuments({

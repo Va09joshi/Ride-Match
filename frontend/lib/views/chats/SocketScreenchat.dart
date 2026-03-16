@@ -2,10 +2,12 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:shimmer/shimmer.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:url_launcher/url_launcher.dart';
 
 enum ChatPermissionStatus { checking, pending, accepted, rejected }
 
@@ -32,7 +34,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   List<Map<String, dynamic>> messages = [];
   String receiverName = "Person";
-  String receiverAvatar = "https://i.pravatar.cc/150?img=3";
+  String receiverAvatar = AppConstant.defaultChatAvatar;
+  String receiverPhone = '';
 
   ChatPermissionStatus permissionStatus = ChatPermissionStatus.checking;
   bool get canChat => permissionStatus == ChatPermissionStatus.accepted;
@@ -46,7 +49,8 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    permissionStatus = widget.initialPermissionStatus ?? ChatPermissionStatus.checking;
+    permissionStatus =
+        widget.initialPermissionStatus ?? ChatPermissionStatus.checking;
     initChat();
   }
 
@@ -61,13 +65,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> checkChatPermission() async {
     try {
-      final url = Uri.parse(
-          '$baseurl/api/chat/permission/${widget.senderId}/${widget.receiverId}');
+      final url = AppApi.uri(
+        AppEndpoints.chatPermission(widget.senderId, widget.receiverId),
+      );
 
-      final res = await http.get(url, headers: {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      });
+      final res = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
 
       if (!mounted) return;
 
@@ -99,7 +107,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (socketConnected) return;
 
     socket = IO.io(
-      baseurl,
+      AppApi.baseUrl,
       IO.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()
@@ -151,17 +159,19 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> fetchReceiverInfo() async {
     setState(() => _loadingReceiver = true);
     try {
-      final url = Uri.parse('$baseurl/api/users/${widget.receiverId}');
-      final res = await http.get(url, headers: {
-        if (token != null) 'Authorization': 'Bearer $token',
-      });
+      final url = AppApi.uri(AppEndpoints.userById(widget.receiverId));
+      final res = await http.get(
+        url,
+        headers: {if (token != null) 'Authorization': 'Bearer $token'},
+      );
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         setState(() {
           receiverName = data['name'] ?? "User";
           receiverAvatar =
-              data['profileImage'] ?? "https://i.pravatar.cc/150?img=3";
+              data['profileImage'] ?? AppConstant.defaultChatAvatar;
+          receiverPhone = (data['phone'] ?? '').toString();
         });
       }
     } catch (_) {}
@@ -171,26 +181,34 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> fetchMessages() async {
     setState(() => _loadingMessages = true);
     try {
-      final url = Uri.parse(
-          '$baseurl/api/messages/${widget.senderId}/${widget.receiverId}');
+      final url = AppApi.uri(
+        AppEndpoints.messages(widget.senderId, widget.receiverId),
+      );
 
-      final res = await http.get(url, headers: {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      });
+      final res = await http.get(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
 
         setState(() {
-          messages = List<Map<String, dynamic>>.from(data.map((m) => {
-            'senderId': m['senderId'],
-            'receiverId': m['receiverId'],
-            'message': m['message'],
-            'timestamp': m['createdAt'] ?? DateTime.now().toIso8601String(),
-            'senderName': m['senderName'] ?? 'User',
-            'receiverName': m['receiverName'] ?? 'User',
-          }));
+          messages = List<Map<String, dynamic>>.from(
+            data.map(
+              (m) => {
+                'senderId': m['senderId'],
+                'receiverId': m['receiverId'],
+                'message': m['message'],
+                'timestamp': m['createdAt'] ?? DateTime.now().toIso8601String(),
+                'senderName': m['senderName'] ?? 'User',
+                'receiverName': m['receiverName'] ?? 'User',
+              },
+            ),
+          );
         });
 
         _scrollToBottom();
@@ -207,7 +225,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _controller.clear();
     _scrollToBottom();
 
-    final url = Uri.parse('$baseurl/api/messages/send');
+    final url = AppApi.uri(AppEndpoints.messageSend);
     final body = jsonEncode({
       'senderId': widget.senderId,
       'receiverId': widget.receiverId,
@@ -216,12 +234,14 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      final res = await http.post(url,
-          headers: {
-            'Content-Type': 'application/json',
-            if (token != null) 'Authorization': 'Bearer $token',
-          },
-          body: body);
+      final res = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: body,
+      );
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -233,16 +253,11 @@ class _ChatScreenState extends State<ChatScreen> {
             'senderId': newMsg['senderId'],
             'receiverId': newMsg['receiverId'],
             'message': newMsg['message'],
-            'timestamp': newMsg['createdAt'] ?? DateTime.now().toIso8601String(),
+            'timestamp':
+                newMsg['createdAt'] ?? DateTime.now().toIso8601String(),
             'senderName': newMsg['senderName'] ?? 'You',
             'receiverName': newMsg['receiverName'] ?? 'User',
           });
-        });
-
-        socket?.emit('sendMessage', {
-          'senderId': widget.senderId,
-          'receiverId': widget.receiverId,
-          'message': text,
         });
 
         _scrollToBottom();
@@ -253,7 +268,6 @@ class _ChatScreenState extends State<ChatScreen> {
       print("Send message error: $e");
     }
   }
-
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -282,30 +296,45 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         backgroundColor: const Color(0xff113F67),
-        title: _loadingReceiver ? _buildShimmerReceiver() : _buildReceiverInfo(),
+        title: _loadingReceiver
+            ? _buildShimmerReceiver()
+            : _buildReceiverInfo(),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.call, color: Colors.white),
+            onPressed: receiverPhone.isEmpty
+                ? null
+                : () async {
+                    final uri = Uri(scheme: 'tel', path: receiverPhone);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri);
+                    }
+                  },
+          ),
+        ],
       ),
       body: permissionStatus == ChatPermissionStatus.checking
           ? const Center(child: CircularProgressIndicator())
           : Column(
-        children: [
-          if (!canChat) _buildPermissionBanner(),
-          Expanded(
-            child: _loadingMessages
-                ? _buildShimmerMessages()
-                : ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(12),
-              itemCount: messages.length,
-              itemBuilder: (context, i) {
-                final msg = messages[i];
-                final isMe = msg['senderId'] == widget.senderId;
-                return _buildMessage(msg, isMe, key: ValueKey(i));
-              },
+              children: [
+                if (!canChat) _buildPermissionBanner(),
+                Expanded(
+                  child: _loadingMessages
+                      ? _buildShimmerMessages()
+                      : ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(12),
+                          itemCount: messages.length,
+                          itemBuilder: (context, i) {
+                            final msg = messages[i];
+                            final isMe = msg['senderId'] == widget.senderId;
+                            return _buildMessage(msg, isMe, key: ValueKey(i));
+                          },
+                        ),
+                ),
+                _buildInputBar(),
+              ],
             ),
-          ),
-          _buildInputBar(),
-        ],
-      ),
     );
   }
 
@@ -333,7 +362,9 @@ class _ChatScreenState extends State<ChatScreen> {
           baseColor: Colors.grey.shade300,
           highlightColor: Colors.grey.shade100,
           child: Align(
-            alignment: __ % 2 == 0 ? Alignment.centerRight : Alignment.centerLeft,
+            alignment: __ % 2 == 0
+                ? Alignment.centerRight
+                : Alignment.centerLeft,
             child: Container(
               width: MediaQuery.of(context).size.width * 0.7,
               height: 50,
@@ -354,9 +385,14 @@ class _ChatScreenState extends State<ChatScreen> {
         CircleAvatar(backgroundImage: NetworkImage(receiverAvatar)),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(receiverName,
-              style: GoogleFonts.dmSans(
-                  color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+          child: Text(
+            receiverName,
+            style: GoogleFonts.dmSans(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ],
     );
@@ -374,9 +410,10 @@ class _ChatScreenState extends State<ChatScreen> {
             : "Chat will unlock after ride acceptance.",
         textAlign: TextAlign.center,
         style: GoogleFonts.dmSans(
-            color: rejected ? Colors.red.shade900 : Colors.orange.shade900,
-            fontWeight: FontWeight.w600,
-            fontSize: 14),
+          color: rejected ? Colors.red.shade900 : Colors.orange.shade900,
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+        ),
       ),
     );
   }
@@ -384,7 +421,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildMessage(Map<String, dynamic> msg, bool isMe, {Key? key}) {
     DateTime time;
     try {
-      final timestamp = msg['timestamp'] ?? msg['createdAt'] ?? DateTime.now().toIso8601String();
+      final timestamp =
+          msg['timestamp'] ??
+          msg['createdAt'] ??
+          DateTime.now().toIso8601String();
       time = DateTime.parse(timestamp).toLocal();
     } catch (_) {
       time = DateTime.now();
@@ -399,11 +439,14 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 5),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        constraints:
-        BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.7,
+        ),
         decoration: BoxDecoration(
           gradient: isMe
-              ? const LinearGradient(colors: [Color(0xff113F67), Color(0xff15518A)])
+              ? const LinearGradient(
+                  colors: [Color(0xff113F67), Color(0xff15518A)],
+                )
               : null,
           color: isMe ? null : Colors.white,
           borderRadius: BorderRadius.only(
@@ -417,20 +460,29 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Colors.black12,
               blurRadius: 4,
               offset: Offset(0, 2),
-            )
+            ),
           ],
         ),
         child: Column(
-          crossAxisAlignment:
-          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
-            Text(msg['message'] ?? '',
-                style: GoogleFonts.dmSans(
-                    color: isMe ? Colors.white : Colors.black87, fontSize: 14)),
+            Text(
+              msg['message'] ?? '',
+              style: GoogleFonts.dmSans(
+                color: isMe ? Colors.white : Colors.black87,
+                fontSize: 14,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(formattedTime,
-                style: GoogleFonts.dmSans(
-                    color: isMe ? Colors.white70 : Colors.black45, fontSize: 11)),
+            Text(
+              formattedTime,
+              style: GoogleFonts.dmSans(
+                color: isMe ? Colors.white70 : Colors.black45,
+                fontSize: 11,
+              ),
+            ),
           ],
         ),
       ),
@@ -463,10 +515,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(30),
-                    borderSide: BorderSide.none),
-                contentPadding:
-                const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                  borderRadius: BorderRadius.circular(30),
+                  borderSide: BorderSide.none,
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 12,
+                  horizontal: 20,
+                ),
               ),
             ),
           ),
@@ -476,11 +531,9 @@ class _ChatScreenState extends State<ChatScreen> {
             backgroundColor: enabled ? const Color(0xff113F67) : Colors.grey,
             mini: true,
             child: const Icon(Icons.send, color: Colors.white),
-          )
+          ),
         ],
       ),
     );
   }
-
-
 }

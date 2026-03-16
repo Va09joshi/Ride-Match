@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:ridematch/main.dart';
 import 'package:ridematch/utils/images.dart';
 import 'package:ridematch/views/auth/Screens/LoginScreen.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';

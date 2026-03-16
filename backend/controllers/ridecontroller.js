@@ -1,6 +1,13 @@
 const Ride = require('../models/Ride');
 const RideRequest = require('../models/RideRequest');
+const Booking = require('../models/Booking');
 const mongoose = require("mongoose");
+const {
+  parseRideDepartureDate,
+  syncRideLifecycles,
+} = require('./rideLifecycle');
+const { createNotification } = require('../helpers/notificationHelper');
+const { createAndDispatchMessage } = require('../helpers/chatMessageHelper');
 
 // Utility function to validate ObjectId
 const isValidId = (id) =>
@@ -10,26 +17,7 @@ const isValidId = (id) =>
   mongoose.Types.ObjectId.isValid(id);
 
 const getRideDepartureDate = (ride) => {
-  const rawDate = (ride?.date || '').toString().trim();
-  const rawTime = (ride?.time || '').toString().trim();
-  if (!rawDate || !rawTime) return null;
-
-  const dateParts = rawDate.split(/[-/]/);
-  if (dateParts.length !== 3) return null;
-
-  const year = Number(dateParts[0]);
-  const month = Number(dateParts[1]);
-  const day = Number(dateParts[2]);
-
-  const timeParts = rawTime.split(':');
-  const hour = Number(timeParts[0]);
-  const minute = timeParts.length > 1 ? Number(timeParts[1]) : 0;
-
-  if ([year, month, day, hour, minute].some((num) => Number.isNaN(num))) {
-    return null;
-  }
-
-  return new Date(year, month - 1, day, hour, minute);
+  return parseRideDepartureDate(ride);
 };
 
 const isUpcomingRide = (ride) => {
@@ -67,11 +55,22 @@ exports.createRide = async (req, res) => {
       time,
       availableSeats,
       amount,
+      status: 'created',
       carDetails,
       location,
     });
 
     await ride.save();
+
+    // Notify the driver that their ride has been posted
+    createNotification({
+      senderId: driverId,
+      receiverId: driverId,
+      type: 'ride_created',
+      message: `Your ride from ${from} to ${to} has been posted successfully.`,
+      relatedId: ride._id.toString(),
+    });
+
     res.status(201).json({ message: 'Ride created successfully', ride });
   } catch (error) {
     console.error('Error creating ride:', error);
@@ -86,7 +85,14 @@ exports.getRides = async (req, res) => {
   try {
     const { excludeUserId } = req.query;
 
-    const query = { $or: [{ status: 'active' }, { status: { $exists: false } }, { status: null }] };
+    const query = {
+      $or: [
+        { status: { $in: ['created', 'active', 'in_progress'] } },
+        { status: { $exists: false } },
+        { status: null },
+      ],
+      availableSeats: { $gt: 0 },
+    };
     if (isValidId(excludeUserId)) {
       query.driverId = { $ne: excludeUserId };
     }
@@ -95,6 +101,7 @@ exports.getRides = async (req, res) => {
       .populate('driverId', 'name email phone profileImage')
       .sort({ createdAt: -1 });
 
+    await syncRideLifecycles(rides);
     const filtered = rides.filter((ride) => isUpcomingRide(ride));
     res.status(200).json({ success: true, rides: filtered });
   } catch (error) {
@@ -118,7 +125,12 @@ exports.getNearbyRides = async (req, res) => {
     }
 
     const query = {
-      $or: [{ status: 'active' }, { status: { $exists: false } }, { status: null }],
+      $or: [
+        { status: { $in: ['created', 'active', 'in_progress'] } },
+        { status: { $exists: false } },
+        { status: null },
+      ],
+      availableSeats: { $gt: 0 },
       location: {
         $near: {
           $geometry: { type: 'Point', coordinates: [parseFloat(longitude), parseFloat(latitude)] },
@@ -133,6 +145,7 @@ exports.getNearbyRides = async (req, res) => {
 
     const rides = await Ride.find(query).populate('driverId', 'name email phone profileImage');
 
+    await syncRideLifecycles(rides);
     const filtered = rides.filter((ride) => isUpcomingRide(ride));
 
     res.status(200).json({ success: true, rides: filtered });
@@ -156,7 +169,11 @@ exports.getUserRides = async (req, res) => {
 
     const query = { driverId: userId };
     if (status === 'active') {
-      query.$or = [{ status: 'active' }, { status: { $exists: false } }, { status: null }];
+      query.$or = [
+        { status: { $in: ['created', 'active', 'in_progress'] } },
+        { status: { $exists: false } },
+        { status: null },
+      ];
     } else if (['cancelled', 'completed'].includes(status)) {
       query.status = status;
     }
@@ -164,6 +181,8 @@ exports.getUserRides = async (req, res) => {
     const rides = await Ride.find(query)
       .sort({ createdAt: -1 })
       .populate('driverId', 'name email phone profileImage');
+
+    await syncRideLifecycles(rides);
 
     res.status(200).json({
       success: true,
@@ -205,6 +224,22 @@ exports.cancelRide = async (req, res) => {
     ride.status = 'cancelled';
     ride.cancelledAt = new Date();
     await ride.save();
+
+    // Notify all passengers who booked this ride
+    try {
+      const bookings = await Booking.find({ ride: rideId, status: 'booked' });
+      for (const booking of bookings) {
+        createNotification({
+          senderId: authUserId,
+          receiverId: booking.user.toString(),
+          type: 'ride_cancelled',
+          message: `Your ride from ${ride.from} to ${ride.to} has been cancelled by the driver.`,
+          relatedId: rideId,
+        });
+      }
+    } catch (notifErr) {
+      console.error('Error sending cancellation notifications:', notifErr.message);
+    }
 
     return res.status(200).json({ success: true, message: 'Ride cancelled successfully', ride });
   } catch (error) {
@@ -256,9 +291,14 @@ exports.requestRide = async (req, res) => {
   try {
     const { rideId } = req.params;
     const { userId, from, to, date, time, note, location } = req.body;
+    const authUserId = req.user?.id;
 
     if (!isValidId(rideId) || !isValidId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid rideId or userId" });
+    }
+
+    if (!authUserId || authUserId.toString() !== userId.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only create requests for your own account' });
     }
 
     if (!from || !to || !date || !time || !location?.coordinates) {
@@ -306,21 +346,71 @@ exports.respondToRequest = async (req, res) => {
   try {
     const { rideId } = req.params;
     const { userId, status } = req.body;
+    const authUserId = req.user?.id;
 
     if (!isValidId(rideId) || !isValidId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid rideId or userId" });
+    }
+
+    const normalizedStatus = (status || '').toString().toLowerCase();
+    if (!['accepted', 'rejected'].includes(normalizedStatus)) {
+      return res.status(400).json({ success: false, message: 'Status must be accepted or rejected' });
+    }
+
+    const ride = await Ride.findById(rideId).populate('driverId', 'name');
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    if (!authUserId || ride.driverId?._id?.toString() !== authUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'Only the ride driver can respond to requests' });
     }
 
     const request = await RideRequest.findOne({ rideId, userId });
     if (!request)
       return res.status(404).json({ success: false, message: "Request not found" });
 
-    request.status = status;
+    if (normalizedStatus === 'rejected') {
+      // Permanent removal for rejected requests.
+      await RideRequest.deleteOne({ _id: request._id });
+
+      createNotification({
+        senderId: req.user?.id || null,
+        receiverId: userId,
+        type: 'ride_request_declined',
+        message: 'Your ride request has been declined by the driver.',
+        relatedId: rideId,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Request rejected and removed permanently',
+        removed: true,
+      });
+    }
+
+    request.status = normalizedStatus;
     await request.save();
+
+    const defaultMessage = `Hi! Your ride request from ${request.from} to ${request.to} has been accepted. We can coordinate pickup details here.`;
+    await createAndDispatchMessage({
+      senderId: ride.driverId._id.toString(),
+      receiverId: userId.toString(),
+      message: defaultMessage,
+    });
+
+    // Notify the requester of the driver's decision
+    createNotification({
+      senderId: req.user?.id || null,
+      receiverId: userId,
+      type: 'ride_request_accepted',
+      message: 'Your ride request has been accepted by the driver.',
+      relatedId: rideId,
+    });
 
     res.status(200).json({
       success: true,
-      message: `Request ${status} successfully`,
+      message: 'Request accepted successfully',
       request
     });
 
@@ -388,18 +478,34 @@ exports.getNearbyRideRequests = async (req, res) => {
 exports.getIncomingRequestsForDriver = async (req, res) => {
   try {
     const { driverId } = req.params;
+    const authUserId = req.user?.id;
 
     if (!isValidId(driverId)) {
       return res.status(400).json({ success: false, message: "Invalid driverId" });
     }
 
-    const rides = await Ride.find({ driverId });
+    if (!authUserId || authUserId.toString() !== driverId.toString()) {
+      return res.status(403).json({ success: false, message: 'Unauthorized access' });
+    }
+
+    const rides = await Ride.find({
+      driverId,
+      $or: [
+        { status: { $in: ['created', 'active', 'in_progress'] } },
+        { status: { $exists: false } },
+        { status: null },
+      ],
+    });
 
     const rideIds = rides.map(r => r._id);
 
-    const requests = await RideRequest.find({ rideId: { $in: rideIds } })
-      .populate("rideId")
-      .populate("userId", "name email");
+    const requests = await RideRequest.find({
+      rideId: { $in: rideIds },
+      status: 'requested',
+    })
+      .sort({ createdAt: -1 })
+      .populate("rideId", "from to date time amount availableSeats status")
+      .populate("userId", "name email phone profileImage");
 
     res.status(200).json({ success: true, count: requests.length, requests });
 

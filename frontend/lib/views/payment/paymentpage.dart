@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class PaymentPage extends StatefulWidget {
   const PaymentPage({super.key});
@@ -9,103 +13,263 @@ class PaymentPage extends StatefulWidget {
 }
 
 class _PaymentPageState extends State<PaymentPage> {
-  late Razorpay _razorpay;
+  List<Map<String, dynamic>> _methods = [];
+  List<Map<String, dynamic>> _transactions = [];
+  bool _loading = true;
+  String? _token;
 
   @override
   void initState() {
     super.initState();
-    _razorpay = Razorpay();
-
-    // Event listeners
-    _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _handlePaymentSuccess);
-    _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _handlePaymentError);
-    _razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, _handleExternalWallet);
+    _initialize();
   }
 
-  @override
-  void dispose() {
-    _razorpay.clear(); // Removes all listeners
-    super.dispose();
+  Future<void> _initialize() async {
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('token');
+    await _loadData();
   }
 
-  // Success
-  void _handlePaymentSuccess(PaymentSuccessResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Payment Successful! ID: ${response.paymentId}")),
-    );
-    print("Payment Success: ${response.paymentId}");
-  }
+  Future<void> _loadData() async {
+    if (_token == null || _token!.isEmpty) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      return;
+    }
 
-  // Failure
-  void _handlePaymentError(PaymentFailureResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("Payment Failed: ${response.message}")),
-    );
-    print("Payment Failed: ${response.code} - ${response.message}");
-  }
-
-  // External wallet
-  void _handleExternalWallet(ExternalWalletResponse response) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("External Wallet Selected: ${response.walletName}")),
-    );
-    print("External Wallet: ${response.walletName}");
-  }
-
-  // Open Razorpay checkout
-  void openCheckout() {
-    var options = {
-      'key': 'rzp_test_7efDroWAFlHu1z', // your Razorpay test key
-      'amount': 50000, // Amount in paise (₹500)
-      'name': 'Ride Payment',
-      'description': 'Pay for your ride',
-      'prefill': {
-        'contact': '9876543210',
-        'email': 'test@example.com',
-      },
-      'theme': {'color': '#0A3D62'},
-      'method': {
-        'upi': true,       // enable UPI
-        'card': false,     // disable card
-        'netbanking': false,
-        'wallet': false,
-      },
-      'external': {
-        'wallets': ['paytm'] // optional
-      },
-    };
-
+    if (mounted) setState(() => _loading = true);
     try {
-      _razorpay.open(options);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error opening Razorpay: $e")),
+      final methodsRes = await http.get(
+        AppApi.uri(AppEndpoints.paymentMethods),
+        headers: {'Authorization': 'Bearer $_token'},
       );
-      print("Error opening Razorpay: $e");
+      final txRes = await http.get(
+        AppApi.uri(AppEndpoints.paymentTransactions),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _methods = methodsRes.statusCode == 200
+            ? List<Map<String, dynamic>>.from(
+                jsonDecode(methodsRes.body)['methods'] ?? [],
+              )
+            : [];
+        _transactions = txRes.statusCode == 200
+            ? List<Map<String, dynamic>>.from(
+                jsonDecode(txRes.body)['transactions'] ?? [],
+              )
+            : [];
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _methods = [];
+        _transactions = [];
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
+  Future<void> _addPaymentMethod() async {
+    final labelController = TextEditingController();
+    final typeController = TextEditingController(text: 'upi');
+    final holderController = TextEditingController();
+    final last4Controller = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Add Payment Method'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: typeController,
+                decoration: const InputDecoration(
+                  labelText: 'Type (upi/card/bank/wallet)',
+                ),
+              ),
+              TextField(
+                controller: labelController,
+                decoration: const InputDecoration(labelText: 'Label'),
+              ),
+              TextField(
+                controller: holderController,
+                decoration: const InputDecoration(labelText: 'Holder Name'),
+              ),
+              TextField(
+                controller: last4Controller,
+                decoration: const InputDecoration(labelText: 'Last 4'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || _token == null) return;
+    await http.post(
+      AppApi.uri(AppEndpoints.paymentMethods),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_token',
+      },
+      body: jsonEncode({
+        'type': typeController.text.trim(),
+        'label': labelController.text.trim(),
+        'holderName': holderController.text.trim(),
+        'last4': last4Controller.text.trim(),
+      }),
+    );
+    await _loadData();
+  }
+
+  Future<void> _deleteMethod(String id) async {
+    if (_token == null) return;
+    await http.delete(
+      AppApi.uri('${AppEndpoints.paymentMethods}/$id'),
+      headers: {'Authorization': 'Bearer $_token'},
+    );
+    await _loadData();
+  }
+
+  Future<void> _addDummyTransaction() async {
+    if (_token == null) return;
+    await http.post(
+      AppApi.uri(AppEndpoints.paymentTransactions),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_token',
+      },
+      body: jsonEncode({
+        'amount': 199,
+        'type': 'ride_booking',
+        'status': 'success',
+        'description': 'Ride payment',
+        'referenceId': DateTime.now().millisecondsSinceEpoch.toString(),
+      }),
+    );
+    await _loadData();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Razorpay Payment"),
+        title: const Text("Payments"),
         backgroundColor: const Color(0xff113F67),
       ),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: openCheckout,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xff113F67),
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-          ),
-          child: const Text(
-            "Pay ₹500",
-            style: TextStyle(fontSize: 16, color: Colors.white),
-          ),
-        ),
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Saved Payment Methods',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _addPaymentMethod,
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
+                    ],
+                  ),
+                  if (_methods.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('No saved payment methods.'),
+                      ),
+                    )
+                  else
+                    ..._methods.map(
+                      (m) => Card(
+                        child: ListTile(
+                          title: Text((m['label'] ?? 'Method').toString()),
+                          subtitle: Text(
+                            '${m['type']} ${m['last4'] ?? ''}'.trim(),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(
+                              Icons.delete_outline,
+                              color: Colors.red,
+                            ),
+                            onPressed: () =>
+                                _deleteMethod((m['_id'] ?? '').toString()),
+                          ),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Previous Transactions',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _addDummyTransaction,
+                        child: const Text('Add Sample'),
+                      ),
+                    ],
+                  ),
+                  if (_transactions.isEmpty)
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text('No transactions yet.'),
+                      ),
+                    )
+                  else
+                    ..._transactions.map(
+                      (t) => Card(
+                        child: ListTile(
+                          title: Text('₹${(t['amount'] ?? 0).toString()}'),
+                          subtitle: Text(
+                            (t['description'] ?? t['type'] ?? '').toString(),
+                          ),
+                          trailing: Text(
+                            (t['status'] ?? '').toString().toUpperCase(),
+                            style: TextStyle(
+                              color: (t['status'] == 'success')
+                                  ? Colors.green
+                                  : Colors.orange,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
     );
   }
 }

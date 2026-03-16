@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ridematch/services/API.dart';
+import 'package:ridematch/utils/app_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:ridematch/views/chats/SocketScreenchat.dart';
@@ -20,7 +21,8 @@ class _PostScreenState extends State<PostScreen> {
   List<Map<String, dynamic>> myRequests = [];
   List<Map<String, dynamic>> otherRequests = [];
   bool _loading = true;
-  Map<String, String> decisionStatus = {}; // requestId : accepted | rejected | pending
+  Map<String, String> decisionStatus =
+      {}; // requestId : accepted | rejected | pending
   Set<String> rejectedLocally = {}; // permanently hidden
   Map<String, bool> liked = {};
 
@@ -48,7 +50,7 @@ class _PostScreenState extends State<PostScreen> {
 
       if (senderId != null) {
         final myResp = await http.get(
-          Uri.parse('$baseurl/api/rides/requests/$senderId'),
+          AppApi.uri(AppEndpoints.rideRequestsByUser(senderId!)),
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -68,8 +70,10 @@ class _PostScreenState extends State<PostScreen> {
         double longitude = 76.06698;
 
         final nearbyResp = await http.get(
-          Uri.parse(
-              '$baseurl/api/rides/requests/nearby/list?longitude=$longitude&latitude=$latitude'),
+          AppApi.uri(
+            AppEndpoints.rideRequestsNearby,
+            queryParameters: {'longitude': longitude, 'latitude': latitude},
+          ),
           headers: {
             'Content-Type': 'application/json',
             if (token != null) 'Authorization': 'Bearer $token',
@@ -86,7 +90,9 @@ class _PostScreenState extends State<PostScreen> {
           }
 
           others.removeWhere((req) {
-            final uid = req['userId'] is Map ? req['userId']['_id'] : req['userId'];
+            final uid = req['userId'] is Map
+                ? req['userId']['_id']
+                : req['userId'];
             return uid == senderId || rejectedLocally.contains(req['_id']);
           });
 
@@ -114,11 +120,16 @@ class _PostScreenState extends State<PostScreen> {
     }
   }
 
-  Future<void> _respondToRequest(Map<String, dynamic> request, String status) async {
+  Future<void> _respondToRequest(
+    Map<String, dynamic> request,
+    String status,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
 
     final requestId = request['_id'];
-    final receiver = request['userId'] is Map ? request['userId']['_id'] : request['userId'];
+    final receiver = request['userId'] is Map
+        ? request['userId']['_id']
+        : request['userId'];
 
     // Disable button immediately
     setState(() {
@@ -151,10 +162,9 @@ class _PostScreenState extends State<PostScreen> {
       _sendAutoIntroMessage(receiver, autoMessage);
     }
 
-
     // Make API call in background
     final rideId = request['rideId'] ?? request['_id'];
-    final url = Uri.parse('$baseurl/api/rides/$rideId/respond');
+    final url = AppApi.uri(AppEndpoints.rideRespond(rideId.toString()));
 
     try {
       String? token = prefs.getString('token');
@@ -164,22 +174,21 @@ class _PostScreenState extends State<PostScreen> {
           'Content-Type': 'application/json',
           if (token != null) 'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          "userId": senderId,
-          "status": status,
-        }),
+        body: jsonEncode({"userId": senderId, "status": status}),
       );
     } catch (e) {
       debugPrint("Respond API error: $e");
     }
   }
 
-
-  Future<String?> _sendAutoIntroMessage(String receiverId, String autoMessage) async {
+  Future<String?> _sendAutoIntroMessage(
+    String receiverId,
+    String autoMessage,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
 
-    final url = Uri.parse('$baseurl/api/messages/auto-intro'); // ✅ UPDATED
+    final url = AppApi.uri(AppEndpoints.messageSend);
 
     try {
       final res = await http.post(
@@ -197,7 +206,7 @@ class _PostScreenState extends State<PostScreen> {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        return data['data']['chatId'];
+        return data['data']?['_id']?.toString();
       } else {
         debugPrint("Auto intro failed: ${res.body}");
       }
@@ -207,10 +216,14 @@ class _PostScreenState extends State<PostScreen> {
     return null;
   }
 
-  Future<void> _sendLikeNotification(String receiverId, String requestId, bool isLiked) async {
+  Future<void> _sendLikeNotification(
+    String receiverId,
+    String requestId,
+    bool isLiked,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     String? token = prefs.getString('token');
-    final url = Uri.parse('$baseurl/api/notifications/like');
+    final url = AppApi.uri(AppEndpoints.notificationsLike);
 
     try {
       await http.post(
@@ -223,7 +236,7 @@ class _PostScreenState extends State<PostScreen> {
           "senderId": senderId,
           "receiverId": receiverId,
           "requestId": requestId,
-          "type": isLiked ? "like" : "unlike"
+          "type": isLiked ? "like" : "unlike",
         }),
       );
     } catch (e) {
@@ -235,7 +248,7 @@ class _PostScreenState extends State<PostScreen> {
     if (user is Map && user['profileImage']?.toString().isNotEmpty == true) {
       return user['profileImage'];
     }
-    return 'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
+    return AppConstant.defaultProfileImage;
   }
 
   @override
@@ -245,25 +258,31 @@ class _PostScreenState extends State<PostScreen> {
       appBar: AppBar(
         automaticallyImplyLeading: false,
         backgroundColor: const Color(0xff113F67),
-        title: Text("Posts",
-            style: GoogleFonts.dmSans(
-                color: Colors.white, fontWeight: FontWeight.w700, fontSize: 22)),
+        title: Text(
+          "Posts",
+          style: GoogleFonts.dmSans(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+            fontSize: 22,
+          ),
+        ),
         centerTitle: true,
         elevation: 0,
       ),
       body: _loading
           ? _buildShimmerFeed()
           : RefreshIndicator(
-        onRefresh: _fetchRequests,
-        child: _buildRequestList(),
-      ),
+              onRefresh: _fetchRequests,
+              child: _buildRequestList(),
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           if (senderId == null) return;
           Navigator.push(
             context,
             MaterialPageRoute(
-                builder: (_) => ChatHistoryScreen(userId: senderId!)),
+              builder: (_) => ChatHistoryScreen(userId: senderId!),
+            ),
           );
         },
         backgroundColor: const Color(0xff113F67),
@@ -272,9 +291,7 @@ class _PostScreenState extends State<PostScreen> {
     );
   }
 
-
-
-Widget _buildShimmerFeed() {
+  Widget _buildShimmerFeed() {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: 6,
@@ -300,9 +317,7 @@ Widget _buildShimmerFeed() {
               children: [
                 const CircleAvatar(radius: 28, backgroundColor: Colors.white),
                 const SizedBox(width: 12),
-                Expanded(
-                  child: Container(height: 14, color: Colors.white),
-                ),
+                Expanded(child: Container(height: 14, color: Colors.white)),
                 const SizedBox(width: 12),
                 const Icon(Icons.favorite_border, color: Colors.white),
               ],
@@ -324,14 +339,19 @@ Widget _buildShimmerFeed() {
       padding: const EdgeInsets.all(16),
       children: [
         if (myRequests.isNotEmpty)
-          Text("Your Requests",
-              style: GoogleFonts.dmSans(
-                  fontSize: 18, fontWeight: FontWeight.w700)),
+          Text(
+            "Your Requests",
+            style: GoogleFonts.dmSans(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ...myRequests.map(_buildMyRequestCard),
         const SizedBox(height: 10),
-        Text("Nearby Requests",
-            style: GoogleFonts.dmSans(
-                fontSize: 18, fontWeight: FontWeight.w700)),
+        Text(
+          "Nearby Requests",
+          style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
         ...otherRequests.map(_buildRequestCard),
       ],
     );
@@ -355,13 +375,16 @@ Widget _buildShimmerFeed() {
             child: Text(
               "${req['from']} → ${req['to']}  •  ${req['date']}",
               style: GoogleFonts.dmSans(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 14),
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
             ),
           ),
-          Text("Your Post",
-              style: GoogleFonts.dmSans(fontSize: 12, color: Colors.white70)),
+          Text(
+            "Your Post",
+            style: GoogleFonts.dmSans(fontSize: 12, color: Colors.white70),
+          ),
         ],
       ),
     );
@@ -386,7 +409,7 @@ Widget _buildShimmerFeed() {
             color: Colors.black.withOpacity(0.08),
             blurRadius: 12,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -394,16 +417,28 @@ Widget _buildShimmerFeed() {
         children: [
           Row(
             children: [
-              CircleAvatar(radius: 28, backgroundImage: NetworkImage(userImage)),
+              CircleAvatar(
+                radius: 28,
+                backgroundImage: NetworkImage(userImage),
+              ),
               const SizedBox(width: 14),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(userName,
-                      style: GoogleFonts.dmSans(
-                          fontWeight: FontWeight.w700, fontSize: 17)),
-                  Text("${request['date']} • ${request['time']}",
-                      style: GoogleFonts.dmSans(fontSize: 13, color: Colors.black54))
+                  Text(
+                    userName,
+                    style: GoogleFonts.dmSans(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                    ),
+                  ),
+                  Text(
+                    "${request['date']} • ${request['time']}",
+                    style: GoogleFonts.dmSans(
+                      fontSize: 13,
+                      color: Colors.black54,
+                    ),
+                  ),
                 ],
               ),
               const Spacer(),
@@ -418,25 +453,28 @@ Widget _buildShimmerFeed() {
                   color: liked[requestId]! ? Colors.red : Colors.grey,
                   size: 28,
                 ),
-              )
+              ),
             ],
           ),
           const SizedBox(height: 16),
           _locationBox(request),
           const SizedBox(height: 10),
-          Text(request['note'] ?? '',
-              style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black87)),
+          Text(
+            request['note'] ?? '',
+            style: GoogleFonts.dmSans(fontSize: 14, color: Colors.black87),
+          ),
           const SizedBox(height: 16),
           const SizedBox(height: 16),
 
-// 🔹 CHAT BUTTON
+          // 🔹 CHAT BUTTON
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xff113F67),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               onPressed: () {
                 if (senderId == null) return;
@@ -449,17 +487,20 @@ Widget _buildShimmerFeed() {
                 );
               },
               icon: const Icon(Icons.chat_bubble_outline, color: Colors.white),
-              label: Text("Chat",
-                  style: GoogleFonts.dmSans(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white)),
+              label: Text(
+                "Chat",
+                style: GoogleFonts.dmSans(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
             ),
           ),
 
           const SizedBox(height: 10),
 
-// 🔹 ACCEPT / REJECT BUTTONS
+          // 🔹 ACCEPT / REJECT BUTTONS
           Row(
             children: [
               Expanded(
@@ -468,13 +509,16 @@ Widget _buildShimmerFeed() {
                     foregroundColor: Colors.red,
                     side: const BorderSide(color: Colors.red),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: decisionStatus[requestId] == "pending"
                       ? () => _respondToRequest(request, "rejected")
                       : null,
-                  child: Text("Reject",
-                      style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
+                  child: Text(
+                    "Reject",
+                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -483,19 +527,23 @@ Widget _buildShimmerFeed() {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   onPressed: decisionStatus[requestId] == "pending"
                       ? () => _respondToRequest(request, "accepted")
                       : null,
-                  child: Text("Accept",
-                      style: GoogleFonts.dmSans(
-                          fontWeight: FontWeight.w600, color: Colors.white)),
+                  child: Text(
+                    "Accept",
+                    style: GoogleFonts.dmSans(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-
         ],
       ),
     );
@@ -515,9 +563,11 @@ Widget _buildShimmerFeed() {
               const Icon(Icons.location_on, color: Color(0xff113F67)),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(req["from"] ?? "",
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
-              )
+                child: Text(
+                  req["from"] ?? "",
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -526,9 +576,11 @@ Widget _buildShimmerFeed() {
               const Icon(Icons.flag, color: Color(0xff113F67)),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(req["to"] ?? "",
-                    style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
-              )
+                child: Text(
+                  req["to"] ?? "",
+                  style: GoogleFonts.dmSans(fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
         ],
