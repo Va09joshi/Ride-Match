@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/authmiddleware'); // JWT auth middleware if needed
+const auth = require('../middleware/authmiddleware');
 const User = require('../models/user');
 
-// Import all controller functions
 const {
   registerUser,
   loginUser,
@@ -12,23 +11,21 @@ const {
   sendOTP,
   verifyOTP,
   resetPassword
-} = require('../controllers/authcontroller'); // Make sure filename matches
+} = require('../controllers/authcontroller');
 
-// ----------------- AUTH ROUTES -----------------
+router.post('/signup', registerUser);
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.post('/forgot-password', sendOTP);
+router.post('/verify-otp', verifyOTP);
+router.post('/reset-password', resetPassword);
+
 router.get('/me', auth, getUserProfile);
 router.put('/update-profile', auth, updateUserProfile);
-
-
 
 router.post('/forgot/send-otp', sendOTP);
 router.post('/forgot/verify-otp', verifyOTP);
 router.post('/forgot/reset-password', resetPassword);
-
-
-
-// ----------------- GET ALL USERS -----------------
 
 router.get('/users', async (req, res) => {
   try {

@@ -1,9 +1,9 @@
 const mongoose = require("mongoose");
 
 const resetTokenSchema = new mongoose.Schema({
-  phone: { type: String, required: true },
+  email: { type: String, required: true, lowercase: true, trim: true },
   token: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now, expires: 600 } // expires after 10 min
+  createdAt: { type: Date, default: Date.now, expires: 600 }
 });
 
 module.exports = mongoose.model("ResetToken", resetTokenSchema);
