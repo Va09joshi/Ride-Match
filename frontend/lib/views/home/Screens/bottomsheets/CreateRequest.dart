@@ -64,7 +64,8 @@ class _CreateLocationRequestScreenState
       }
 
       Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
       String address = await _getAddressFromPosition(position);
 
@@ -80,8 +81,10 @@ class _CreateLocationRequestScreenState
   // 🔄 Reverse geocoding helper
   Future<String> _getAddressFromPosition(Position position) async {
     try {
-      List<Placemark> placemarks =
-      await placemarkFromCoordinates(position.latitude, position.longitude);
+      List<Placemark> placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
       if (placemarks.isNotEmpty) {
         final place = placemarks.first;
         return "${place.street}, ${place.locality}, ${place.postalCode}, ${place.country}";
@@ -105,8 +108,10 @@ class _CreateLocationRequestScreenState
 
   // 🕒 Time Picker
   Future<void> _selectTime() async {
-    final picked =
-    await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
     if (picked != null) setState(() => selectedTime = picked);
   }
 
@@ -167,15 +172,17 @@ class _CreateLocationRequestScreenState
         "time": formattedTime,
         "location": {
           "type": "Point",
-          "coordinates": [currentPosition!.longitude, currentPosition!.latitude]
+          "coordinates": [
+            currentPosition!.longitude,
+            currentPosition!.latitude,
+          ],
         },
       };
 
       print("DEBUG: Request Body -> ${json.encode(body)}"); // Debug
 
       final response = await http.post(
-        Uri.parse(
-            "$baseurl/api/rides/${widget.rideId}/request"),
+        Uri.parse("$baseurl/api/rides/${widget.rideId}/request"),
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",
@@ -202,9 +209,11 @@ class _CreateLocationRequestScreenState
 
       if ((response.statusCode == 200 || response.statusCode == 201) &&
           responseData['success'] == true) {
-
         // Check if backend says already requested
-        if (responseData['message']?.toString().toLowerCase().contains("already requested") ?? false) {
+        if (responseData['message']?.toString().toLowerCase().contains(
+              "already requested",
+            ) ??
+            false) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text("⚠️ You have already requested this ride"),
@@ -226,7 +235,6 @@ class _CreateLocationRequestScreenState
           );
           Navigator.pop(context, request);
         }
-
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -239,7 +247,6 @@ class _CreateLocationRequestScreenState
           ),
         );
       }
-
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -285,8 +292,10 @@ class _CreateLocationRequestScreenState
       backgroundColor: const Color(0xffF7F9FB),
       appBar: AppBar(
         backgroundColor: const Color(0xff113F67),
-        title: Text("Request Ride",
-            style: GoogleFonts.dmSans(color: Colors.white)),
+        title: Text(
+          "Request Ride",
+          style: GoogleFonts.dmSans(color: Colors.white),
+        ),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -296,30 +305,91 @@ class _CreateLocationRequestScreenState
           child: Column(
             children: [
               Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xff113F67), Color(0xff34699A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.add_location_alt_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Request a Ride Spot",
+                            style: GoogleFonts.dmSans(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Share your pickup, destination and preferred time.",
+                            style: GoogleFonts.dmSans(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withOpacity(0.9),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              Container(
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: const [
                     BoxShadow(
-                        color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
+                      color: Colors.black12,
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
                   ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text("Request Details",
-                        style: GoogleFonts.dmSans(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xff113F67))),
+                    Text(
+                      "Request Details",
+                      style: GoogleFonts.dmSans(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xff113F67),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     _buildTextField(
                       controller: fromController,
                       label: "From (Pickup)",
                       icon: Icons.location_on_outlined,
                       validator: (v) =>
-                      v!.isEmpty ? "Enter pickup location" : null,
+                          v!.isEmpty ? "Enter pickup location" : null,
                       suffix: IconButton(
                         icon: const Icon(Icons.my_location),
                         onPressed: _getCurrentLocation,
@@ -330,8 +400,7 @@ class _CreateLocationRequestScreenState
                       controller: toController,
                       label: "To (Destination)",
                       icon: Icons.flag_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter destination" : null,
+                      validator: (v) => v!.isEmpty ? "Enter destination" : null,
                     ),
                     const SizedBox(height: 16),
                     GestureDetector(
@@ -339,13 +408,14 @@ class _CreateLocationRequestScreenState
                       child: AbsorbPointer(
                         child: _buildTextField(
                           controller: TextEditingController(
-                              text: selectedDate == null
-                                  ? ""
-                                  : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}"),
+                            text: selectedDate == null
+                                ? ""
+                                : "${selectedDate!.day}-${selectedDate!.month}-${selectedDate!.year}",
+                          ),
                           label: "Select Date",
                           icon: Icons.calendar_today,
                           validator: (v) =>
-                          selectedDate == null ? "Select date" : null,
+                              selectedDate == null ? "Select date" : null,
                         ),
                       ),
                     ),
@@ -355,13 +425,14 @@ class _CreateLocationRequestScreenState
                       child: AbsorbPointer(
                         child: _buildTextField(
                           controller: TextEditingController(
-                              text: selectedTime == null
-                                  ? ""
-                                  : selectedTime!.format(context)),
+                            text: selectedTime == null
+                                ? ""
+                                : selectedTime!.format(context),
+                          ),
                           label: "Select Time",
                           icon: Icons.access_time,
                           validator: (v) =>
-                          selectedTime == null ? "Select time" : null,
+                              selectedTime == null ? "Select time" : null,
                         ),
                       ),
                     ),
@@ -370,8 +441,7 @@ class _CreateLocationRequestScreenState
                       controller: noteController,
                       label: "Note / Purpose",
                       icon: Icons.comment_outlined,
-                      validator: (v) =>
-                      v!.isEmpty ? "Enter short note" : null,
+                      validator: (v) => v!.isEmpty ? "Enter short note" : null,
                     ),
                   ],
                 ),
@@ -384,11 +454,12 @@ class _CreateLocationRequestScreenState
                   icon: const Icon(Icons.send_rounded, color: Colors.white),
                   onPressed: isLoading ? null : _createRequest,
                   label: Text(
-                    isLoading ? "Posting..." : "Post Request",
+                    isLoading ? "Sending..." : "Send Ride Request",
                     style: GoogleFonts.dmSans(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white),
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xff113F67),

@@ -93,6 +93,7 @@ class _ForgetPasswordScreenState extends State<ForgetPasswordScreen> {
       ),
       child: TextField(
         controller: _emailController,
+        onChanged: (_) => setState(() {}),
         keyboardType: TextInputType.emailAddress,
         style: GoogleFonts.dmSans(color: Colors.black87),
         decoration: InputDecoration(
@@ -178,7 +179,7 @@ class _ForgetPasswordScreenState extends State<ForgetPasswordScreen> {
                           _buildEmailField(),
                           const SizedBox(height: 25),
                           GestureDetector(
-                            onTap: sendOTP,
+                            onTap: _isLoading ? null : sendOTP,
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
                               height: 50,

@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:ridematch/services/API.dart';
+import 'package:ridematch/views/chats/SocketScreenchat.dart';
 import 'package:ridematch/views/dashboard/Screens/Dashboard.dart';
-import 'package:ridematch/views/home/Screens/homeScreen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class RideDetailsScreen extends StatefulWidget {
@@ -33,6 +37,8 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   String distanceText = "0 km";
   String etaText = "0 mins";
   String fareText = "₹0";
+  bool _bookingLoading = false;
+  bool _bookingInProgress = false;
 
 
   late Razorpay _razorpay;
@@ -138,7 +144,74 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   Future<void> _launchCaller(String? phone) async {
     if (phone == null || phone.isEmpty) return;
     final Uri uri = Uri(scheme: "tel", path: phone);
-    if (await canLaunchUrl(uri)) launchUrl(uri);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  Future<void> _openChat(String driverId) async {
+    if (widget.currentUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again to use chat.')),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          senderId: widget.currentUserId,
+          receiverId: driverId,
+          initialPermissionStatus: ChatPermissionStatus.accepted,
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _bookRide({int seats = 1}) async {
+    if (_bookingInProgress) return null;
+
+    setState(() {
+      _bookingLoading = true;
+      _bookingInProgress = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('token');
+      if (token == null || token.isEmpty) {
+        throw Exception('Please login again.');
+      }
+
+      final response = await http.post(
+        AppApi.uri('/api/bookings'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: '{"rideId":"${widget.rideData['_id']}","seatsBooked":$seats}',
+      );
+
+      final payload = response.body.isNotEmpty ? Map<String, dynamic>.from(await Future.value(jsonDecode(response.body))) : <String, dynamic>{};
+      final success = response.statusCode >= 200 && response.statusCode < 300 && payload['success'] == true;
+
+      if (!success) {
+        final message = (payload['message'] ?? 'Unable to book ride').toString();
+        throw Exception(message);
+      }
+
+      final booking = Map<String, dynamic>.from(payload['booking'] ?? {});
+      final bookingId = (booking['bookingId'] ?? '').toString();
+      return bookingId;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _bookingLoading = false;
+          _bookingInProgress = false;
+        });
+      }
+    }
   }
 
   // Razorpay payment integration
@@ -167,97 +240,20 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
   void _handlePaymentSuccess(PaymentSuccessResponse response) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Success Icon
-                Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.check_circle_rounded,
-                    color: Colors.green,
-                    size: 60,
-                  ),
-                ),
-                const SizedBox(height: 15),
+    _confirmBookingAfterPayment();
+  }
 
-                // Title
-                Text(
-                  "Ride Booked!",
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                const SizedBox(height: 10),
-
-                // Message
-                const Text(
-                  "Your ride is on the way.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // Button
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 30,
-                      vertical: 12,
-                    ),
-                  ),
-                  child: const Text(
-                    "OK",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pop(context); // close dialog
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DashboardScreen(),
-        ),
+  Future<void> _confirmBookingAfterPayment() async {
+    try {
+      final bookingId = await _bookRide();
+      if (!mounted || bookingId == null || bookingId.isEmpty) return;
+      _showRideStartedPopup(bookingId);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
       );
-    });
+    }
   }
 
 
@@ -300,9 +296,18 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               _openRazorpayCheckout();
             }),
             const SizedBox(height: 12),
-            _paymentBtn(Icons.money, "Pay with Cash", onTap: () {
+            _paymentBtn(Icons.money, "Pay with Cash", onTap: () async {
               Navigator.pop(context);
-              _showRideStartedPopup();
+              try {
+                final bookingId = await _bookRide();
+                if (!mounted || bookingId == null || bookingId.isEmpty) return;
+                _showRideStartedPopup(bookingId);
+              } catch (error) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
+                );
+              }
             }),
             const SizedBox(height: 20),
           ],
@@ -341,9 +346,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     final car = ride['carDetails'] ?? {'name': 'Car', 'number': 'XXX-000', 'color': 'Black'};
     final driverImage = ride['driverImage'] ??
         'https://www.pngall.com/wp-content/uploads/5/User-Profile-PNG.png';
-    final rating = ride['rating'] ?? 4.0;
-    final driverName = ride["driverId"]["name"] ?? 'Driver';
-    final driverPhone = ride['driverPhone'] ?? '';
+    final rating = (ride['rating'] is num)
+      ? (ride['rating'] as num).toDouble()
+      : double.tryParse((ride['rating'] ?? '4.0').toString()) ?? 4.0;
+    final driverName = ride["driverId"]?["name"] ?? ride['driverName'] ?? 'Driver';
+    final driverPhone = ride['driverPhone'] ?? ride['driverId']?['phone'] ?? '';
+    final driverId = (ride['driverId'] is Map)
+      ? (ride['driverId']['_id'] ?? '').toString()
+      : (ride['driverId'] ?? '').toString();
 
     return Scaffold(
       body: Stack(
@@ -380,6 +390,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               child: _bottomDetails(
                 ride,
                 car,
+                driverId,
                 driverName,
                 driverPhone,
                 driverImage,
@@ -395,13 +406,18 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   Widget _bottomDetails(
       Map<String, dynamic> ride,
       Map<String, dynamic> car,
+      String driverId,
       String driverName,
       String driverPhone,
       String driverImage,
       double rating,
       ) {
-    // Correct way to get driverId
-    final driverId = ride['driverId'] is Map ? ride['driverId']['_id'] : ride['driverId'];
+    final availableSeats = (ride['availableSeats'] is num)
+        ? (ride['availableSeats'] as num).toInt()
+        : int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
+    final price = (ride['amount'] is num)
+        ? (ride['amount'] as num).toDouble()
+        : double.tryParse((ride['amount'] ?? '0').toString()) ?? 0.0;
 
     return Container(
       decoration: BoxDecoration(
@@ -423,30 +439,31 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(50)),
             ),
             const SizedBox(height: 20),
-            _driverCard(driverName, driverPhone, driverImage, rating),
+            _driverCard(driverName, driverPhone, driverImage, rating, driverId),
             const SizedBox(height: 20),
             _tripDetailsSection(
               pickup: ride['from'] ?? "Unknown",
               drop: ride['to'] ?? "Unknown",
               distance: distanceText,
               eta: etaText,
-              fare: fareText,
+              fare: "₹${price.toStringAsFixed(0)}",
               date: ride['date'],
               time: ride['time'],
-              seats: ride['seats'],
+              seats: availableSeats,
             ),
             const SizedBox(height: 15),
-            // Use the correctly extracted driverId
             if (driverId != widget.currentUserId)
               ElevatedButton(
-                onPressed: _showPaymentSheet,
+                onPressed: (_bookingLoading || availableSeats <= 0) ? null : _showPaymentSheet,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xff0A2647),
                   minimumSize: const Size(double.infinity, 55),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
                 child: Text(
-                  "ACCEPT & PAY",
+                  _bookingLoading
+                      ? "Booking..."
+                      : (availableSeats <= 0 ? "No Seats Available" : "Book Ride"),
                   style: GoogleFonts.dmSans(
                       fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white),
                 ),
@@ -458,7 +475,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
   }
 
 
-  Widget _driverCard(String name, String phone, String image, double rating) {
+  Widget _driverCard(String name, String phone, String image, double rating, String driverId) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -531,7 +548,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          // TODO: Add chat functionality
+                          _openChat(driverId);
                         },
                         icon: const Icon(Icons.chat, size: 18),
                         label: const Text("Chat"),
@@ -623,7 +640,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
     );
   }
 
-  void _showRideStartedPopup() {
+  void _showRideStartedPopup(String bookingId) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -650,9 +667,10 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
               const SizedBox(width: 12),
               Column(
                 mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    "Ride Started",
+                    "Ride Booked",
                     style: GoogleFonts.dmSans(
                       color: const Color(0xff0A2647),
                       fontSize: 18,
@@ -660,6 +678,15 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
+                  Text(
+                    "Ride ID: $bookingId",
+                    style: GoogleFonts.dmSans(
+                      color: const Color(0xff0A2647),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
                   Text(
                     "Happy Journey!",
                     style: GoogleFonts.dmSans(
@@ -670,7 +697,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                   ),
                 ],
               ),
-            ],
+                // Close popup after 2 seconds and navigate
           ),
         );
       },

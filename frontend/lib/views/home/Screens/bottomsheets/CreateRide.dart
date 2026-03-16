@@ -38,7 +38,8 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
 
     LocationPermission permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) return;
+        permission == LocationPermission.deniedForever)
+      return;
 
     Position position = await Geolocator.getCurrentPosition(
       desiredAccuracy: LocationAccuracy.high,
@@ -48,7 +49,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       currentLat = position.latitude;
       currentLng = position.longitude;
       fromController.text =
-      "Current Location (${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)})";
+          "Current Location (${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)})";
     });
   }
 
@@ -65,8 +66,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
 
   // 🕒 Time Picker
   Future<void> _selectTime() async {
-    final picked =
-    await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
     if (picked != null) setState(() => selectedTime = picked);
   }
 
@@ -74,10 +77,12 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   Future<void> _createRide() async {
     if (!_formKey.currentState!.validate()) return;
     if (selectedDate == null || selectedTime == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Please select both date and time."),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please select both date and time."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
       return;
     }
 
@@ -91,7 +96,8 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       "driverId": userId,
       "from": fromController.text.trim(),
       "to": toController.text.trim(),
-      "date": "${selectedDate!.year}-${selectedDate!.month}-${selectedDate!.day}",
+      "date":
+          "${selectedDate!.year}-${selectedDate!.month}-${selectedDate!.day}",
       "time": "${selectedTime!.hour}:${selectedTime!.minute}",
       "availableSeats": int.parse(seatsController.text.trim()),
       "amount": double.parse(amountController.text.trim()),
@@ -102,16 +108,13 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       },
       "location": {
         "type": "Point",
-        "coordinates": [currentLng ?? 0.0, currentLat ?? 0.0]
-      }
+        "coordinates": [currentLng ?? 0.0, currentLat ?? 0.0],
+      },
     };
 
     print(" userId: $userId");
     print(" token: $token");
     print(" rideData: ${jsonEncode(rideData)}");
-
-
-
 
     try {
       final response = await http.post(
@@ -127,26 +130,31 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
         final data = jsonDecode(response.body);
         final newRide = data['ride'];
 
-        ScaffoldMessenger.of(context).showSnackBar( SnackBar(
-          content: Text("Ride Published Successfully!",style: GoogleFonts.dmSans(color: Colors.black),),
-          backgroundColor: Colors.white,
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Ride Published Successfully!",
+              style: GoogleFonts.dmSans(color: Colors.black),
+            ),
+            backgroundColor: Colors.white,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
 
         // 👇 Pass the new ride back to MyRidesScreen
         Navigator.pop(context, newRide);
-      }
-      else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Failed: ${response.body}"),
-          backgroundColor: Colors.redAccent,
-        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed: ${response.body}"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("Error: $e"),
-        backgroundColor: Colors.redAccent,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent),
+      );
     } finally {
       setState(() => isLoading = false);
     }
@@ -171,8 +179,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
         suffixIcon: suffix,
         filled: true,
         fillColor: Colors.white,
-        contentPadding:
-        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
@@ -181,7 +191,6 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
     );
   }
 
-  @override
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -208,17 +217,71 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xff113F67), Color(0xff34699A)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.route_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Publish a New Ride",
+                            style: GoogleFonts.dmSans(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "Add route, schedule, seats and fare details.",
+                            style: GoogleFonts.dmSans(
+                              color: Colors.white.withOpacity(0.9),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
 
               // 🌍 Ride Info Card
               _sectionCard(
                 title: "Ride Details",
                 children: [
-
                   _buildTextField(
                     controller: fromController,
                     label: "Pickup Location",
                     icon: Icons.location_on_outlined,
-                    validator: (v) => v!.isEmpty ? "Enter pickup location" : null,
+                    validator: (v) =>
+                        v!.isEmpty ? "Enter pickup location" : null,
                     suffix: IconButton(
                       icon: const Icon(Icons.my_location_rounded),
                       onPressed: _getCurrentLocation,
@@ -249,7 +312,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                         label: "Select Date",
                         icon: Icons.calendar_month_rounded,
                         validator: (_) =>
-                        selectedDate == null ? "Select date" : null,
+                            selectedDate == null ? "Select date" : null,
                       ),
                     ),
                   ),
@@ -269,7 +332,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                         label: "Select Time",
                         icon: Icons.access_time_filled_rounded,
                         validator: (_) =>
-                        selectedTime == null ? "Select time" : null,
+                            selectedTime == null ? "Select time" : null,
                       ),
                     ),
                   ),
@@ -284,8 +347,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                           type: TextInputType.number,
                           label: "Seats",
                           icon: Icons.event_seat_rounded,
-                          validator: (v) =>
-                          v!.isEmpty ? "Enter seats" : null,
+                          validator: (v) => v!.isEmpty ? "Enter seats" : null,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -295,13 +357,11 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                           type: TextInputType.number,
                           label: "Fare (₹)",
                           icon: Icons.currency_rupee_rounded,
-                          validator: (v) =>
-                          v!.isEmpty ? "Enter amount" : null,
+                          validator: (v) => v!.isEmpty ? "Enter amount" : null,
                         ),
                       ),
                     ],
                   ),
-
                 ],
               ),
 
@@ -311,7 +371,6 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
               _sectionCard(
                 title: "Car Details",
                 children: [
-
                   _buildTextField(
                     controller: carNameController,
                     label: "Car Name",
@@ -336,7 +395,6 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                     icon: Icons.color_lens_rounded,
                     validator: (v) => v!.isEmpty ? "Enter car color" : null,
                   ),
-
                 ],
               ),
 
@@ -386,7 +444,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
             color: Colors.black12.withOpacity(0.07),
             blurRadius: 12,
             offset: const Offset(0, 4),
-          )
+          ),
         ],
       ),
       child: Column(
@@ -406,5 +464,4 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       ),
     );
   }
-
 }

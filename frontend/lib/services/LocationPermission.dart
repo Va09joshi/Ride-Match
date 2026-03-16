@@ -37,22 +37,26 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
       }
 
       Position position = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high);
+        desiredAccuracy: LocationAccuracy.high,
+      );
 
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
-        _markers.add(Marker(
-          markerId: MarkerId("currentLocation"),
-          position: _currentPosition!,
-        ));
+        _markers.add(
+          Marker(
+            markerId: MarkerId("currentLocation"),
+            position: _currentPosition!,
+          ),
+        );
       });
 
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setDouble('userLat', position.latitude);
       await prefs.setDouble('userLng', position.longitude);
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       setState(() => _isLoading = false);
     }
@@ -119,29 +123,35 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                   _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
                       : ElevatedButton.icon(
-                    onPressed: _requestLocationPermission,
-                    icon: const Icon(Icons.my_location_rounded,
-                        color: Colors.white),
-                    label: Text(
-                      "Turn On Location",
-                      style: GoogleFonts.dmSans(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white.withOpacity(0.15),
-                      foregroundColor: Colors.white,
-                      elevation: 5,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 40, vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        side: const BorderSide(
-                            color: Colors.white70, width: 1),
-                      ),
-                    ),
-                  ),
+                          onPressed: _requestLocationPermission,
+                          icon: const Icon(
+                            Icons.my_location_rounded,
+                            color: Colors.white,
+                          ),
+                          label: Text(
+                            "Turn On Location",
+                            style: GoogleFonts.dmSans(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white.withOpacity(0.15),
+                            foregroundColor: Colors.white,
+                            elevation: 5,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 40,
+                              vertical: 14,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                              side: const BorderSide(
+                                color: Colors.white70,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
 
                   const SizedBox(height: 20),
 
@@ -149,35 +159,35 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                   _currentPosition == null
                       ? const SizedBox.shrink()
                       : Container(
-                    height: 300,
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black26,
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
+                          height: 300,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black26,
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: GoogleMap(
+                              initialCameraPosition: CameraPosition(
+                                target: _currentPosition!,
+                                zoom: 14,
+                              ),
+                              markers: _markers,
+                              myLocationEnabled: true,
+                              myLocationButtonEnabled: true,
+                              zoomControlsEnabled: false,
+                              onMapCreated: (GoogleMapController controller) {
+                                _mapController = controller;
+                              },
+                            ),
+                          ),
                         ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: GoogleMap(
-                        initialCameraPosition: CameraPosition(
-                          target: _currentPosition!,
-                          zoom: 14,
-                        ),
-                        markers: _markers,
-                        myLocationEnabled: true,
-                        myLocationButtonEnabled: true,
-                        zoomControlsEnabled: false,
-                        onMapCreated: (GoogleMapController controller) {
-                          _mapController = controller;
-                        },
-                      ),
-                    ),
-                  ),
 
                   const SizedBox(height: 20),
 
@@ -187,16 +197,21 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                     child: Text(
                       "Proceed",
                       style: GoogleFonts.dmSans(
-                          fontSize: 16, fontWeight: FontWeight.w600),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white.withOpacity(0.15),
                       foregroundColor: Colors.white,
                       elevation: 5,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 60, vertical: 14),
+                        horizontal: 60,
+                        vertical: 14,
+                      ),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(30)),
+                        borderRadius: BorderRadius.circular(30),
+                      ),
                     ),
                   ),
 
@@ -205,8 +220,10 @@ class _LocationPermissionScreenState extends State<LocationPermissionScreen> {
                   // 🔹 Manual Selection
                   TextButton.icon(
                     onPressed: _requestLocationPermission,
-                    icon: const Icon(Icons.pin_drop_outlined,
-                        color: Colors.white70),
+                    icon: const Icon(
+                      Icons.pin_drop_outlined,
+                      color: Colors.white70,
+                    ),
                     label: Text(
                       "Select Location Manually",
                       style: GoogleFonts.dmSans(

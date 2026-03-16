@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ridematch/services/auth_service.dart';
@@ -24,6 +25,7 @@ class _OTPScreenState extends State<OTPScreen> {
     (_) => TextEditingController(),
   );
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  Timer? _resendTimer;
   bool _isLoading = false;
   int _resendSeconds = 30;
 
@@ -34,14 +36,18 @@ class _OTPScreenState extends State<OTPScreen> {
   }
 
   void _startResendTimer() {
+    _resendTimer?.cancel();
     _resendSeconds = 30;
-    Future.doWhile(() async {
-      if (_resendSeconds > 0) {
-        await Future.delayed(const Duration(seconds: 1));
-        setState(() => _resendSeconds--);
-        return true;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
       }
-      return false;
+      if (_resendSeconds <= 0) {
+        timer.cancel();
+      } else {
+        setState(() => _resendSeconds--);
+      }
     });
   }
 
@@ -68,6 +74,12 @@ class _OTPScreenState extends State<OTPScreen> {
     }
 
     final String resetToken = (response.data['resetToken'] ?? '').toString();
+    if (resetToken.isEmpty) {
+      _showSnackBar(
+        'Unable to verify OTP right now. Please request OTP again.',
+      );
+      return;
+    }
 
     Navigator.pushReplacement(
       context,
@@ -132,6 +144,7 @@ class _OTPScreenState extends State<OTPScreen> {
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _otpControllers.forEach((c) => c.dispose());
     _focusNodes.forEach((f) => f.dispose());
     super.dispose();

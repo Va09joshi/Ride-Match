@@ -9,6 +9,35 @@ const isValidId = (id) =>
   id !== "undefined" &&
   mongoose.Types.ObjectId.isValid(id);
 
+const getRideDepartureDate = (ride) => {
+  const rawDate = (ride?.date || '').toString().trim();
+  const rawTime = (ride?.time || '').toString().trim();
+  if (!rawDate || !rawTime) return null;
+
+  const dateParts = rawDate.split(/[-/]/);
+  if (dateParts.length !== 3) return null;
+
+  const year = Number(dateParts[0]);
+  const month = Number(dateParts[1]);
+  const day = Number(dateParts[2]);
+
+  const timeParts = rawTime.split(':');
+  const hour = Number(timeParts[0]);
+  const minute = timeParts.length > 1 ? Number(timeParts[1]) : 0;
+
+  if ([year, month, day, hour, minute].some((num) => Number.isNaN(num))) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day, hour, minute);
+};
+
+const isUpcomingRide = (ride) => {
+  const departure = getRideDepartureDate(ride);
+  if (!departure) return true;
+  return departure.getTime() > Date.now();
+};
+
 // -------------------------------------------------------
 // CREATE RIDE
 // -------------------------------------------------------
@@ -55,8 +84,19 @@ exports.createRide = async (req, res) => {
 // -------------------------------------------------------
 exports.getRides = async (req, res) => {
   try {
-    const rides = await Ride.find().populate('driverId', 'name email');
-    res.status(200).json({ success: true, rides });
+    const { excludeUserId } = req.query;
+
+    const query = { $or: [{ status: 'active' }, { status: { $exists: false } }, { status: null }] };
+    if (isValidId(excludeUserId)) {
+      query.driverId = { $ne: excludeUserId };
+    }
+
+    const rides = await Ride.find(query)
+      .populate('driverId', 'name email phone profileImage')
+      .sort({ createdAt: -1 });
+
+    const filtered = rides.filter((ride) => isUpcomingRide(ride));
+    res.status(200).json({ success: true, rides: filtered });
   } catch (error) {
     console.error('Error fetching rides:', error);
     res.status(500).json({ success: false, message: 'Server error', error });
@@ -68,7 +108,7 @@ exports.getRides = async (req, res) => {
 // -------------------------------------------------------
 exports.getNearbyRides = async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 10000 } = req.query;
+    const { longitude, latitude, maxDistance = 10000, excludeUserId } = req.query;
 
     if (!longitude || !latitude) {
       return res.status(400).json({
@@ -77,16 +117,25 @@ exports.getNearbyRides = async (req, res) => {
       });
     }
 
-    const rides = await Ride.find({
+    const query = {
+      $or: [{ status: 'active' }, { status: { $exists: false } }, { status: null }],
       location: {
         $near: {
           $geometry: { type: 'Point', coordinates: [parseFloat(longitude), parseFloat(latitude)] },
           $maxDistance: parseFloat(maxDistance),
         },
       },
-    });
+    };
 
-    res.status(200).json({ success: true, rides });
+    if (isValidId(excludeUserId)) {
+      query.driverId = { $ne: excludeUserId };
+    }
+
+    const rides = await Ride.find(query).populate('driverId', 'name email phone profileImage');
+
+    const filtered = rides.filter((ride) => isUpcomingRide(ride));
+
+    res.status(200).json({ success: true, rides: filtered });
   } catch (error) {
     console.error('Error fetching nearby rides:', error);
     res.status(500).json({ success: false, message: 'Server error', error });
@@ -99,14 +148,22 @@ exports.getNearbyRides = async (req, res) => {
 exports.getUserRides = async (req, res) => {
   try {
     const { userId } = req.params;
+    const { status } = req.query;
 
     if (!isValidId(userId)) {
       return res.status(400).json({ success: false, message: "Invalid userId" });
     }
 
-    const rides = await Ride.find({ driverId: userId })
+    const query = { driverId: userId };
+    if (status === 'active') {
+      query.$or = [{ status: 'active' }, { status: { $exists: false } }, { status: null }];
+    } else if (['cancelled', 'completed'].includes(status)) {
+      query.status = status;
+    }
+
+    const rides = await Ride.find(query)
       .sort({ createdAt: -1 })
-      .populate('driverId', 'name email');
+      .populate('driverId', 'name email phone profileImage');
 
     res.status(200).json({
       success: true,
@@ -117,6 +174,78 @@ exports.getUserRides = async (req, res) => {
   } catch (error) {
     console.error("Error fetching user's rides:", error);
     res.status(500).json({ success: false, message: 'Server error', error });
+  }
+};
+
+// -------------------------------------------------------
+// CANCEL RIDE (DRIVER)
+// -------------------------------------------------------
+exports.cancelRide = async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const authUserId = req.user?.id;
+
+    if (!isValidId(rideId)) {
+      return res.status(400).json({ success: false, message: 'Invalid rideId' });
+    }
+
+    const ride = await Ride.findById(rideId);
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    if (!authUserId || ride.driverId.toString() !== authUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'Only the driver can cancel this ride' });
+    }
+
+    if (ride.status === 'cancelled') {
+      return res.status(200).json({ success: true, message: 'Ride already cancelled', ride });
+    }
+
+    ride.status = 'cancelled';
+    ride.cancelledAt = new Date();
+    await ride.save();
+
+    return res.status(200).json({ success: true, message: 'Ride cancelled successfully', ride });
+  } catch (error) {
+    console.error('Error cancelling ride:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// -------------------------------------------------------
+// COMPLETE RIDE (DRIVER)
+// -------------------------------------------------------
+exports.completeRide = async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const authUserId = req.user?.id;
+
+    if (!isValidId(rideId)) {
+      return res.status(400).json({ success: false, message: 'Invalid rideId' });
+    }
+
+    const ride = await Ride.findById(rideId);
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    if (!authUserId || ride.driverId.toString() !== authUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'Only the driver can complete this ride' });
+    }
+
+    if (ride.status === 'completed') {
+      return res.status(200).json({ success: true, message: 'Ride already completed', ride });
+    }
+
+    ride.status = 'completed';
+    ride.completedAt = new Date();
+    await ride.save();
+
+    return res.status(200).json({ success: true, message: 'Ride marked as completed', ride });
+  } catch (error) {
+    console.error('Error completing ride:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -65,17 +66,39 @@ class AuthService {
     required Map<String, dynamic> body,
   }) async {
     try {
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      );
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20));
 
-      final Map<String, dynamic> payload = response.body.isEmpty
-          ? <String, dynamic>{}
-          : jsonDecode(response.body) as Map<String, dynamic>;
+      Map<String, dynamic> payload = <String, dynamic>{};
+      if (response.body.isNotEmpty) {
+        try {
+          payload = jsonDecode(response.body) as Map<String, dynamic>;
+        } catch (_) {
+          payload = {'success': false, 'message': response.body};
+        }
+      }
+
+      payload['success'] ??=
+          response.statusCode >= 200 && response.statusCode < 300;
+      payload['message'] ??=
+          response.statusCode >= 200 && response.statusCode < 300
+          ? 'Request successful'
+          : 'Request failed';
 
       return AuthResponse(statusCode: response.statusCode, data: payload);
+    } on TimeoutException {
+      return AuthResponse(
+        statusCode: 408,
+        data: const {
+          'success': false,
+          'message': 'Request timed out. Please try again.',
+        },
+      );
     } catch (_) {
       return AuthResponse(
         statusCode: 500,

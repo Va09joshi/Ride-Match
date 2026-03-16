@@ -30,6 +30,19 @@ const rideSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  status: {
+    type: String,
+    enum: ['active', 'cancelled', 'completed'],
+    default: 'active',
+  },
+  cancelledAt: {
+    type: Date,
+    default: null,
+  },
+  completedAt: {
+    type: Date,
+    default: null,
+  },
   carDetails: {
     name: { type: String, required: true },
     number: { type: String, required: true },

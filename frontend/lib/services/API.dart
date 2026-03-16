@@ -1,5 +1,5 @@
 class AppApi {
-  static const String baseUrl = 'https://ride-match.onrender.com';
+  static const String baseUrl = 'https://ride-match-backend.onrender.com';
   // static const String baseUrl = 'http://192.168.29.206:5000';
   // static const String baseUrl = 'http://10.213.29.104:5000';
 

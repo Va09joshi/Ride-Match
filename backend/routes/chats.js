@@ -3,6 +3,14 @@ const router = express.Router();
 const Message = require('../models/Message');
 const User = require('../models/user');
 
+// Basic permission endpoint used by chat UI.
+router.get('/permission/:senderId/:receiverId', async (req, res) => {
+  return res.status(200).json({
+    success: true,
+    status: 'accepted',
+  });
+});
+
 // GET chat between two users
 router.get('/:userA/:userB', async (req, res) => {
   const { userA, userB } = req.params;

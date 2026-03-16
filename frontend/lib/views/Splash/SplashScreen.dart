@@ -69,12 +69,12 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: Colors.white,
       body: _controller.value.isInitialized
           ? Center(
-        child: AspectRatio(
-          aspectRatio: _controller.value.aspectRatio,
-          child: VideoPlayer(_controller),
-        ),
-      )
-          : const Center(child: CircularProgressIndicator(color: Colors.white,)),
+              child: AspectRatio(
+                aspectRatio: _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              ),
+            )
+          : const Center(child: CircularProgressIndicator(color: Colors.white)),
     );
   }
 }

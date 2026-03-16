@@ -18,17 +18,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final List<Map<String, String>> onboardingData = [
     {
       "title": "Find a Ride, Anytime.",
-      "subtitle": "Search nearby drivers or passengers heading your way. Quick, reliable, and effortless ride-sharing starts here.",
+      "subtitle":
+          "Search nearby drivers or passengers heading your way. Quick, reliable, and effortless ride-sharing starts here.",
       "image": Images.onboard_one,
     },
     {
       "title": "Share Rides. Save Money.",
-      "subtitle": " Split travel costs, reduce fuel use, and make your journey more affordable — because sharing is caring.",
+      "subtitle":
+          " Split travel costs, reduce fuel use, and make your journey more affordable — because sharing is caring.",
       "image": Images.onboard_two,
     },
     {
       "title": "Let’s Get Started!",
-      "subtitle": "You’re all set to carpool smarter, safer, and cheaper. Find your first ride and start saving today.",
+      "subtitle":
+          "You’re all set to carpool smarter, safer, and cheaper. Find your first ride and start saving today.",
       "image": Images.onboard_three,
     },
   ];
@@ -75,7 +78,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           style: GoogleFonts.dmSans(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xff003161)
+                            color: Color(0xff003161),
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -103,7 +106,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     },
                     child: Text(
                       "Skip",
-                      style: GoogleFonts.dmSans(fontSize: 16,color: Colors.black45,fontWeight: FontWeight.w500),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 16,
+                        color: Colors.black45,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                   SmoothPageIndicator(
@@ -129,7 +136,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     },
                     child: Text(
                       isLastPage ? "Done" : "Next",
-                      style: GoogleFonts.dmSans(fontSize: 16,fontWeight: FontWeight.w500,color: Color(0xff003161)),
+                      style: GoogleFonts.dmSans(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xff003161),
+                      ),
                     ),
                   ),
                 ],

@@ -30,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Set<Marker> _markers = {};
   bool isLoading = false;
   BitmapDescriptor? rideMarkerIcon;
+  Timer? _rideExpiryTimer;
 
   bool hasNewNotification = false;
 
@@ -41,42 +42,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
 
-  // =================== DEMO MARKERS (INDORE) =====================
-  final List<Map<String, dynamic>> demoMarkers = [
-    {
-      "pos": LatLng(22.7196, 75.8577),
-      "title": "Rajwada Palace",
-      "driver": "Amit Sharma",
-      "bike": "Activa 5G",
-      "amount": 40
-    },
-    {
-      "pos": LatLng(22.7533, 75.8937),
-      "title": "Vijay Nagar",
-      "driver": "Rohit Verma",
-      "bike": "Honda Shine",
-      "amount": 55
-    },
-    {
-      "pos": LatLng(22.6900, 75.8765),
-      "title": "Indore Junction",
-      "driver": "Sandeep Patel",
-      "bike": "Bajaj Pulsar",
-      "amount": 60
-    },
-    {
-      "pos": LatLng(22.7253, 75.8638),
-      "title": "Lalbagh Palace",
-      "driver": "Vikas Yadav",
-      "bike": "TVS Apache",
-      "amount": 45
-    }
-  ];
-
-  // popup state
+  // marker selection state for top ride sheet
   Map<String, dynamic>? _selectedMarkerData;
-  LatLng? _selectedMarkerLatLng;
-  Offset? _popupOffset; // screen coordinates for popup
   bool _showPopup = false;
 
   @override
@@ -86,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     _initialize();
     _loadMarkerIcon();
+    _startRideExpiryWatcher();
 
     fromController.addListener(_filterRides);
     toController.addListener(_filterRides);
@@ -118,9 +86,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await fetchUserData();
     await fetchRides();
 
-    // Add demo markers (Indore)
-    _ensureDemoMarkers();
-
     // Check notifications at launch
     await checkNotifications();
 
@@ -129,24 +94,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _startRideExpiryWatcher() {
+    _rideExpiryTimer?.cancel();
+    _rideExpiryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted) return;
+      _addRideMarkers();
+    });
+  }
+
   // Get current user location
   Future<void> _getUserLocation() async {
     if (!await Geolocator.isLocationServiceEnabled()) return;
 
     LocationPermission permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) return;
+        permission == LocationPermission.deniedForever)
+      return;
 
     Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
+      desiredAccuracy: LocationAccuracy.high,
+    );
 
-    List<Placemark> placemarks =
-    await placemarkFromCoordinates(position.latitude, position.longitude);
+    List<Placemark> placemarks = await placemarkFromCoordinates(
+      position.latitude,
+      position.longitude,
+    );
 
     setState(() {
       _currentPosition = LatLng(position.latitude, position.longitude);
       fullAddress =
-      "${placemarks.first.locality ?? ''}, ${placemarks.first.administrativeArea ?? ''}";
+          "${placemarks.first.locality ?? ''}, ${placemarks.first.administrativeArea ?? ''}";
     });
   }
 
@@ -170,7 +147,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final data = jsonDecode(res.body);
 
       final list = List<Map<String, dynamic>>.from(
-          data['notifications'] ?? data['notification'] ?? data['data'] ?? []);
+        data['notifications'] ?? data['notification'] ?? data['data'] ?? [],
+      );
 
       bool hasUnread = list.any((item) => item['read'] == false);
 
@@ -235,184 +213,135 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Add all ride markers (keeps demo markers)
+  DateTime? _departureDateTime(Map<String, dynamic> ride) {
+    final rawDate = (ride['date'] ?? '').toString().trim();
+    final rawTime = (ride['time'] ?? '').toString().trim();
+    if (rawDate.isEmpty || rawTime.isEmpty) return null;
+
+    final dateParts = rawDate.split(RegExp(r'[-/]'));
+    if (dateParts.length != 3) return null;
+
+    final year = int.tryParse(dateParts[0]);
+    final month = int.tryParse(dateParts[1]);
+    final day = int.tryParse(dateParts[2]);
+    if (year == null || month == null || day == null) return null;
+
+    final timeParts = rawTime.split(':');
+    final hour = int.tryParse(timeParts[0]);
+    final minute = timeParts.length > 1 ? int.tryParse(timeParts[1]) : 0;
+    if (hour == null || minute == null) return null;
+
+    return DateTime(year, month, day, hour, minute);
+  }
+
+  bool _isUpcomingRide(Map<String, dynamic> ride) {
+    final departure = _departureDateTime(ride);
+    if (departure == null) return true;
+    return departure.isAfter(DateTime.now());
+  }
+
+  LatLng? _extractRideLocation(Map<String, dynamic> ride) {
+    final fromLat = double.tryParse((ride['fromLat'] ?? '').toString());
+    final fromLong = double.tryParse((ride['fromLong'] ?? '').toString());
+    if (fromLat != null && fromLong != null) {
+      return LatLng(fromLat, fromLong);
+    }
+
+    final pickupLat = ride['pickupLocation']?['lat'];
+    final pickupLng = ride['pickupLocation']?['lng'];
+    if (pickupLat != null && pickupLng != null) {
+      return LatLng(
+        (pickupLat as num).toDouble(),
+        (pickupLng as num).toDouble(),
+      );
+    }
+
+    final coordinates = ride['location']?['coordinates'];
+    if (coordinates is List && coordinates.length >= 2) {
+      final lng = (coordinates[0] as num).toDouble();
+      final lat = (coordinates[1] as num).toDouble();
+      return LatLng(lat, lng);
+    }
+
+    return null;
+  }
+
+  bool _isNearby(LatLng ridePos) {
+    if (_currentPosition == null) return true;
+    final distanceMeters = Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      ridePos.latitude,
+      ridePos.longitude,
+    );
+    return distanceMeters <= 25000; // 25 km radius
+  }
+
+  // Add all ride markers for upcoming nearby rides
   void _addRideMarkers() {
-    // remove only previous ride_* markers (keep demo_* and booked markers)
-    _markers.removeWhere((m) =>
-        m.markerId.value.startsWith('ride_')); // remove old ride markers
+    // remove only previous ride_* markers (keep booked markers)
+    _markers.removeWhere((m) => m.markerId.value.startsWith('ride_'));
+
+    final from = fromController.text.toLowerCase().trim();
+    final to = toController.text.toLowerCase().trim();
 
     for (var ride in ridePosts) {
       String? driverId;
 
       if (ride['driverId'] is String) {
         driverId = ride['driverId'];
-      } else if (ride['driverId'] is Map &&
-          ride['driverId']['_id'] != null) {
+      } else if (ride['driverId'] is Map && ride['driverId']['_id'] != null) {
         driverId = ride['driverId']['_id'];
       }
 
       if (driverId == currentUserId) continue;
+      if (!_isUpcomingRide(ride)) continue;
 
-      double? lat = double.tryParse(ride['fromLat']?.toString() ?? '');
-      double? lng = double.tryParse(ride['fromLong']?.toString() ?? '');
+      final rideFrom = (ride['from'] ?? '').toString().toLowerCase();
+      final rideTo = (ride['to'] ?? '').toString().toLowerCase();
+      if ((from.isNotEmpty && !rideFrom.contains(from)) ||
+          (to.isNotEmpty && !rideTo.contains(to))) {
+        continue;
+      }
 
-      lat ??= ride['pickupLocation']?['lat'];
-      lng ??= ride['pickupLocation']?['lng'];
-
-      if (lat == null || lng == null) continue;
+      final ridePos = _extractRideLocation(ride);
+      if (ridePos == null) continue;
+      if (!_isNearby(ridePos)) continue;
 
       final markerId = MarkerId('ride_${ride['_id']}');
 
       _markers.add(
         Marker(
           markerId: markerId,
-          position: LatLng(lat, lng),
+          position: ridePos,
           icon: rideMarkerIcon ?? BitmapDescriptor.defaultMarker,
           infoWindow: InfoWindow(
             title: "${ride['from']} → ${ride['to']}",
             snippet: "Rs ${ride['amount']}",
             onTap: () => _showRideDetail(ride),
           ),
-          onTap: () => _onMarkerTap(ride, LatLng(lat!, lng!)),
+          onTap: () => _onMarkerTap(ride),
         ),
       );
     }
-
-    // ensure demo markers still present
-    _ensureDemoMarkers();
 
     Future.delayed(const Duration(milliseconds: 300), _zoomToFitMarkers);
+    if (mounted) {
+      setState(() {});
+    }
   }
 
-  // Ensure demo markers exists (doesn't duplicate)
-  void _ensureDemoMarkers() {
-    // if demo markers already present, don't re-add duplicates
-    final existingDemoIds =
-    _markers.map((m) => m.markerId.value).where((id) => id.startsWith('demo_')).toSet();
-
-    for (int i = 0; i < demoMarkers.length; i++) {
-      if (existingDemoIds.contains('demo_$i')) continue;
-
-      final d = demoMarkers[i];
-
-      _markers.add(
-        Marker(
-          markerId: MarkerId('demo_$i'),
-          position: d["pos"],
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-          infoWindow: InfoWindow(
-            title: d['title'],
-            snippet: "${d['driver']} | ${d['bike']}",
-            onTap: () {
-              // open bottom sheet using same shape as server rides
-              _showRideDetail({
-                'from': d['title'],
-                'to': d['title'],
-                'driverId': {'name': d['driver']},
-                'bike': d['bike'],
-                'amount': d['amount'],
-                'seats': 1
-              });
-            },
-          ),
-          onTap: () => _onMarkerTap({
-            'from': d['title'],
-            'to': d['title'],
-            'driverId': {'name': d['driver']},
-            'bike': d['bike'],
-            'amount': d['amount'],
-            'seats': 1
-          }, d['pos']),
-        ),
-      );
-    }
-
-    setState(() {});
-  }
-
-  // Called when any marker is tapped to show custom popup
-  Future<void> _onMarkerTap(Map<String, dynamic> rideData, LatLng pos) async {
-    try {
-      if (mapController == null) {
-        // fallback: just open bottom sheet
-        _showRideDetail(rideData);
-        return;
-      }
-
-      // get screen coordinate of the LatLng
-      ScreenCoordinate sc = await mapController!.getScreenCoordinate(pos);
-
-      // convert device pixels to logical pixels
-      final dp = MediaQuery.of(context).devicePixelRatio;
-      final logicalX = sc.x / dp;
-      final logicalY = sc.y / dp;
-
-      // offset the popup so it appears above the marker
-      // we will center horizontally (subtract half popup width)
-      // and move up by popup height
-      const popupWidth = 220.0;
-      const popupHeight = 110.0;
-
-      final left = logicalX - (popupWidth / 2);
-      final top = logicalY - popupHeight - 20; // 20 px gap above marker
-
-      setState(() {
-        _selectedMarkerData = rideData;
-        _selectedMarkerLatLng = pos;
-        _popupOffset = Offset(left, top);
-        _showPopup = true;
-      });
-    } catch (e) {
-      // if anything fails, just open bottom sheet
-      _showRideDetail(rideData);
-    }
+  // Called when marker is tapped to show top sheet
+  void _onMarkerTap(Map<String, dynamic> rideData) {
+    setState(() {
+      _selectedMarkerData = rideData;
+      _showPopup = true;
+    });
   }
 
   // Filter rides by From/To
   void _filterRides() {
-    String from = fromController.text.toLowerCase();
-    String to = toController.text.toLowerCase();
-
-    // clear only ride_* markers so demo markers remain
-    _markers.removeWhere((m) => m.markerId.value.startsWith('ride_'));
-
-    for (var ride in ridePosts) {
-      final driver = ride['driverId'];
-      final driverId = driver is String ? driver : driver['_id'];
-
-      if (driverId == currentUserId) continue;
-
-      String rideFrom = (ride['from'] ?? '').toLowerCase();
-      String rideTo = (ride['to'] ?? '').toLowerCase();
-
-      if ((from.isEmpty || rideFrom.contains(from)) &&
-          (to.isEmpty || rideTo.contains(to)) &&
-          ride['fromLat'] != null &&
-          ride['fromLong'] != null) {
-        _markers.add(
-          Marker(
-            markerId: MarkerId('ride_${ride['_id']}'),
-            position: LatLng(
-              double.parse(ride['fromLat'].toString()),
-              double.parse(ride['fromLong'].toString()),
-            ),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-            infoWindow: InfoWindow(
-              title: "${ride['from']} → ${ride['to']}",
-              snippet: "Rs ${ride['amount']}",
-              onTap: () => _showRideDetail(ride),
-            ),
-            onTap: () => _onMarkerTap(ride, LatLng(double.parse(ride['fromLat'].toString()),
-                double.parse(ride['fromLong'].toString()))),
-          ),
-        );
-      }
-    }
-
-    // ensure demo markers still present (no duplicates)
-    _ensureDemoMarkers();
-
-    Future.delayed(const Duration(milliseconds: 300), _zoomToFitMarkers);
+    _addRideMarkers();
   }
 
   // Zoom map to fit all markers
@@ -438,8 +367,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     try {
-      await mapController!.moveCamera(CameraUpdate.newLatLngBounds(bounds, 100));
-      await mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 100));
+      await mapController!.moveCamera(
+        CameraUpdate.newLatLngBounds(bounds, 100),
+      );
+      await mapController!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, 100),
+      );
     } catch (e) {
       final center = LatLng((minLat + maxLat) / 2, (minLng + maxLng) / 2);
       mapController!.animateCamera(CameraUpdate.newLatLngZoom(center, 2));
@@ -449,17 +382,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Add booked ride markers
   void _addBookedRideMarker(Map<String, dynamic> ride) {
     if (ride['pickupLocation'] != null && ride['dropLocation'] != null) {
-      final pickup = LatLng(ride['pickupLocation']['lat'], ride['pickupLocation']['lng']);
-      final drop = LatLng(ride['dropLocation']['lat'], ride['dropLocation']['lng']);
+      final pickup = LatLng(
+        ride['pickupLocation']['lat'],
+        ride['pickupLocation']['lng'],
+      );
+      final drop = LatLng(
+        ride['dropLocation']['lat'],
+        ride['dropLocation']['lng'],
+      );
 
       // remove old booked markers first
-      _markers.removeWhere((m) => m.markerId.value == 'booked_pickup' || m.markerId.value == 'booked_drop');
+      _markers.removeWhere(
+        (m) =>
+            m.markerId.value == 'booked_pickup' ||
+            m.markerId.value == 'booked_drop',
+      );
 
       _markers.add(
         Marker(
           markerId: const MarkerId('booked_pickup'),
           position: pickup,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
           infoWindow: const InfoWindow(title: "Your Pickup"),
         ),
       );
@@ -493,10 +438,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
       builder: (_) {
         final driver = ride["driverId"];
-        final driverName = driver?["name"] ?? ride["driver"] ?? "Unknown Driver";
+        final driverName =
+            driver?["name"] ?? ride["driver"] ?? "Unknown Driver";
         final bike = ride["bike"] ?? "Bike not listed";
         final price = ride["amount"] ?? "0";
-        final seats = ride["seats"]?.toString() ?? "1";
+        final seats = (ride["availableSeats"] ?? ride["seats"] ?? 1).toString();
+        final departure = _departureDateTime(Map<String, dynamic>.from(ride));
+        final departureText = departure == null
+            ? "Not specified"
+            : "${departure.day.toString().padLeft(2, '0')}-${departure.month.toString().padLeft(2, '0')}-${departure.year} ${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}";
+        final description =
+            (ride["description"] ??
+                    ride["note"] ??
+                    "Comfortable ride with verified driver")
+                .toString();
 
         return Padding(
           padding: const EdgeInsets.all(20),
@@ -562,20 +517,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
               const SizedBox(height: 20),
 
-              // Pricing + seats
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _infoTile("Price", "₹$price"),
-                  _infoTile("Seats", seats),
-                  _infoTile("From", ride["from"]),
-                  _infoTile("To", ride["to"]),
-                ],
-              ),
+              _infoTile("Ride summary", "${ride["from"]} → ${ride["to"]}"),
+              const SizedBox(height: 10),
+              _infoTile("Departure", departureText),
+              const SizedBox(height: 10),
+              _infoTile("Available seats", seats),
+              const SizedBox(height: 10),
+              _infoTile("Short description", description),
 
               const SizedBox(height: 28),
 
-              // Join Ride Button
+              // View full ride button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -584,7 +536,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => RideDetailsScreen(rideData: ride, currentUserId: '',),
+                        builder: (_) => RideDetailsScreen(
+                          rideData: ride,
+                          currentUserId: currentUserId ?? '',
+                        ),
                       ),
                     );
                   },
@@ -596,7 +551,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   child: Text(
-                    "Join Ride",
+                    "View Full Ride",
                     style: GoogleFonts.dmSans(
                       fontSize: 17,
                       fontWeight: FontWeight.w600,
@@ -616,30 +571,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   /// Small info tile widget
   Widget _infoTile(String title, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: GoogleFonts.dmSans(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: Colors.black54,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.dmSans(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Colors.black54,
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: GoogleFonts.dmSans(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: Colors.black87,
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: GoogleFonts.dmSans(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
-
 
   void _showQuickActions() {
     showModalBottomSheet(
@@ -669,7 +631,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Center(
               child: Text(
                 "Quick Actions",
-                style: GoogleFonts.dmSans(fontSize: 20, fontWeight: FontWeight.bold),
+                style: GoogleFonts.dmSans(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
             const Divider(thickness: 1, height: 20),
@@ -678,7 +643,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               title: "Create a Ride",
               iconBgColor: Colors.blue.shade50,
               iconColor: Colors.blue.shade700,
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateRideScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CreateRideScreen()),
+              ),
             ),
             _buildActionTile(
               icon: Icons.add_location_alt,
@@ -690,17 +658,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 if (ridePosts.isNotEmpty) {
                   openCreateLocationRequest(ridePosts[0]['_id']);
                 } else {
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text("No rides available to request.")));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text("No rides available to request."),
+                    ),
+                  );
                 }
               },
-            ),
-            _buildActionTile(
-              icon: Icons.people_alt,
-              title: "Nearby Matches",
-              iconBgColor: Colors.orange.shade50,
-              iconColor: Colors.orange.shade700,
-              onTap: () => Navigator.pop(context),
             ),
           ],
         ),
@@ -723,26 +687,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 5))],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
         ),
         child: Row(
           children: [
             Container(
               width: 4,
               height: 48,
-              decoration: BoxDecoration(color: iconColor, borderRadius: BorderRadius.circular(2)),
+              decoration: BoxDecoration(
+                color: iconColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
             const SizedBox(width: 12),
             Container(
-              decoration: BoxDecoration(color: iconBgColor, borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(
+                color: iconBgColor,
+                borderRadius: BorderRadius.circular(12),
+              ),
               padding: const EdgeInsets.all(14),
               child: Icon(icon, color: iconColor, size: 26),
             ),
             const SizedBox(width: 16),
             Expanded(
-              child: Text(title, style: GoogleFonts.dmSans(fontSize: 16, fontWeight: FontWeight.w600)),
+              child: Text(
+                title,
+                style: GoogleFonts.dmSans(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-            Icon(Icons.arrow_forward_ios_rounded, size: 18, color: Colors.grey[400]),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 18,
+              color: Colors.grey[400],
+            ),
           ],
         ),
       ),
@@ -769,17 +755,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Hey ${userName ?? 'User'} 👋",
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.w600, fontSize: 18, color: Colors.white)),
+            Text(
+              "Hey ${userName ?? 'User'} 👋",
+              style: GoogleFonts.dmSans(
+                fontWeight: FontWeight.w600,
+                fontSize: 18,
+                color: Colors.white,
+              ),
+            ),
             const SizedBox(height: 4),
             Row(
               children: [
                 const Icon(Icons.location_on, color: Colors.white70, size: 18),
                 const SizedBox(width: 4),
                 Expanded(
-                  child: Text(fullAddress ?? "Fetching location...",
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.dmSans(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w400)),
+                  child: Text(
+                    fullAddress ?? "Fetching location...",
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.dmSans(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -808,7 +806,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 });
               });
             },
-          )
+          ),
         ],
       ),
       body: Stack(
@@ -816,25 +814,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           // Map
           _currentPosition == null
               ? const MapShimmerLoader(
-            showSearchBar: true,
-            showCenterButton: true,
-            markerCount: 0,
-          )
+                  showSearchBar: true,
+                  showCenterButton: true,
+                  markerCount: 0,
+                )
               : GoogleMap(
-            onMapCreated: (controller) {
-              mapController = controller;
-              // hide popup if map is interacted with
-            },
-            initialCameraPosition: CameraPosition(target: _currentPosition!, zoom: 14.5),
-            myLocationEnabled: true,
-            markers: _markers,
-            onTap: (latlng) {
-              // hide custom popup when tapping map
-              setState(() {
-                _showPopup = false;
-              });
-            },
-          ),
+                  onMapCreated: (controller) {
+                    mapController = controller;
+                    // hide popup if map is interacted with
+                  },
+                  initialCameraPosition: CameraPosition(
+                    target: _currentPosition!,
+                    zoom: 14.5,
+                  ),
+                  myLocationEnabled: true,
+                  markers: _markers,
+                  onTap: (latlng) {
+                    // hide custom popup when tapping map
+                    setState(() {
+                      _showPopup = false;
+                    });
+                  },
+                ),
 
           // SEARCH BAR
           Positioned(
@@ -845,7 +846,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               decoration: BoxDecoration(
                 color: Colors.white.withOpacity(0.95),
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 3))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
@@ -862,7 +869,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Colors.grey),
+                  const Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 16,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
@@ -874,36 +885,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                   ),
-                  IconButton(icon: const Icon(Icons.filter_alt_outlined, color: Colors.blueAccent), onPressed: _filterRides),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.filter_alt_outlined,
+                      color: Colors.blueAccent,
+                    ),
+                    onPressed: _filterRides,
+                  ),
                 ],
               ),
             ),
           ),
 
-          // Custom popup (Style 2: bigger card with photo)
-          if (_showPopup && _selectedMarkerData != null && _popupOffset != null)
+          // Top sheet preview shown after marker tap
+          if (_showPopup && _selectedMarkerData != null)
             Positioned(
-              left: _popupOffset!.dx.clamp(8.0, MediaQuery.of(context).size.width - 228.0),
-              top: _popupOffset!.dy.clamp(80.0, MediaQuery.of(context).size.height - 140.0),
+              top: 94,
+              left: 14,
+              right: 14,
               child: GestureDetector(
                 onTap: () {
-                  // open ride detail bottom sheet
+                  // step 2: open bottom sheet preview
                   _showRideDetail(_selectedMarkerData);
                 },
                 child: Material(
                   elevation: 8,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 220,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                     child: Row(
                       children: [
-                        // driver photo placeholder
                         CircleAvatar(
-                          radius: 26,
+                          radius: 22,
                           backgroundColor: Colors.grey[200],
-                          child: _buildDriverAvatar(_selectedMarkerData?['driver'] ?? _selectedMarkerData?['driverId']?['name']),
+                          child: _buildDriverAvatar(
+                            _selectedMarkerData?['driver'] ??
+                                _selectedMarkerData?['driverId']?['name'],
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -911,48 +936,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _selectedMarkerData?['driverId']?['name'] ??
-                                    _selectedMarkerData?['driver'] ??
-                                    'Driver',
-                                style: GoogleFonts.dmSans(fontWeight: FontWeight.w700, fontSize: 14),
+                                "${_selectedMarkerData?['from']} → ${_selectedMarkerData?['to']}",
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 13,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 4),
-                              if ((_selectedMarkerData?['bike'] ?? '').isNotEmpty)
-                                Text("${_selectedMarkerData?['bike']}",
-                                    style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey[700])),
-                              const SizedBox(height: 6),
                               Text(
-                                "${_selectedMarkerData?['from']} → ${_selectedMarkerData?['to']}",
-                                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey[800]),
+                                _selectedMarkerData?['driverId']?['name'] ??
+                                    _selectedMarkerData?['driver'] ??
+                                    'Driver',
+                                style: GoogleFonts.dmSans(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                  color: Colors.black54,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                               const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text("₹${_selectedMarkerData?['amount'] ?? 0}",
-                                      style: GoogleFonts.dmSans(fontSize: 13, fontWeight: FontWeight.w700)),
-                                  GestureDetector(
-                                    onTap: () {
-                                      // explicitly open details (stop event propagation)
-                                      _showRideDetail(_selectedMarkerData);
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xff113F67),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text("View",
-                                          style: GoogleFonts.dmSans(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                                    ),
-                                  )
-                                ],
-                              )
+                              Text(
+                                "Tap to preview",
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  color: const Color(0xff113F67),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ],
                           ),
-                        )
+                        ),
                       ],
                     ),
                   ),
@@ -967,7 +982,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: FloatingActionButton.extended(
           onPressed: _showQuickActions,
           backgroundColor: const Color(0xff113F67),
-          label: Text("Quick Actions", style: GoogleFonts.dmSans(color: Colors.white, fontWeight: FontWeight.w500)),
+          label: Text(
+            "Quick Actions",
+            style: GoogleFonts.dmSans(
+              color: Colors.white,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
           icon: const Icon(Icons.add_circle_outline, color: Colors.white),
           elevation: 8,
         ),
@@ -980,12 +1001,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return const Icon(Icons.person, color: Colors.grey);
     }
     final parts = name.split(' ');
-    String initials = parts.length >= 2 ? '${parts[0][0]}${parts[1][0]}' : parts[0][0];
-    return Text(initials.toUpperCase(), style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w700));
+    String initials = parts.length >= 2
+        ? '${parts[0][0]}${parts[1][0]}'
+        : parts[0][0];
+    return Text(
+      initials.toUpperCase(),
+      style: const TextStyle(
+        color: Colors.black87,
+        fontWeight: FontWeight.w700,
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _rideExpiryTimer?.cancel();
     fromController.dispose();
     toController.dispose();
     super.dispose();
