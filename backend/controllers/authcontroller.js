@@ -226,7 +226,13 @@ const sendOTP = async (req, res) => {
     res.status(200).json({ success: true, message: "OTP sent successfully" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, message: err.message || "Failed to send OTP" });
+    const transportErrorCodes = ['ENETUNREACH', 'ETIMEDOUT', 'ESOCKET', 'ECONNECTION'];
+    const isTransportError = transportErrorCodes.includes(err?.code);
+    const message = isTransportError
+      ? 'Email service is temporarily unavailable. Please try again in a few minutes.'
+      : (err?.message || 'Failed to send OTP');
+
+    res.status(500).json({ success: false, message });
   }
 };
 
