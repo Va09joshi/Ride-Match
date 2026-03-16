@@ -16,6 +16,8 @@ class CreateRideScreen extends StatefulWidget {
 
 class _CreateRideScreenState extends State<CreateRideScreen> {
   final _formKey = GlobalKey<FormState>();
+  static const Color _primary = Color(0xff113F67);
+  static const Color _bg = Color(0xffF6F8FB);
 
   // Controllers
   final TextEditingController fromController = TextEditingController();
@@ -176,17 +178,26 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       style: GoogleFonts.dmSans(fontSize: 15),
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xff113F67)),
+        labelStyle: GoogleFonts.dmSans(color: Colors.black54),
+        prefixIcon: Icon(icon, color: _primary),
         suffixIcon: suffix,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xffFBFCFE),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _primary, width: 1.4),
         ),
       ),
     );
@@ -195,18 +206,19 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffF4F6FA),
+      backgroundColor: _bg,
 
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: const Color(0xff113F67),
+        backgroundColor: Colors.white,
+        foregroundColor: _primary,
         centerTitle: true,
         title: Text(
           "Create Ride",
           style: GoogleFonts.dmSans(
             fontWeight: FontWeight.w600,
             fontSize: 19,
-            color: Colors.white,
+            color: _primary,
           ),
         ),
       ),
@@ -222,25 +234,26 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xff113F67), Color(0xff34699A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
+                        color: _primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(
-                        Icons.route_rounded,
-                        color: Colors.white,
-                      ),
+                      child: Icon(Icons.route_rounded, color: _primary),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -250,7 +263,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                           Text(
                             "Publish a New Ride",
                             style: GoogleFonts.dmSans(
-                              color: Colors.white,
+                              color: _primary,
                               fontSize: 17,
                               fontWeight: FontWeight.w700,
                             ),
@@ -259,7 +272,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                           Text(
                             "Add route, schedule, seats and fare details.",
                             style: GoogleFonts.dmSans(
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.black54,
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
                             ),
@@ -408,7 +421,8 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                 child: ElevatedButton(
                   onPressed: isLoading ? null : _createRide,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xff113F67),
+                    backgroundColor: _primary,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
@@ -440,9 +454,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black12.withOpacity(0.07),
+            color: Colors.black12.withOpacity(0.05),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -456,7 +471,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
             style: GoogleFonts.dmSans(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: const Color(0xff113F67),
+              color: _primary,
             ),
           ),
           const SizedBox(height: 16),

@@ -98,6 +98,10 @@ class _LoginScreenState extends State<LoginScreen>
       await prefs.setString('username', (user['name'] ?? '').toString());
       await prefs.setString('userId', (user['id'] ?? '').toString());
       await prefs.setString('userEmail', (user['email'] ?? '').toString());
+      await prefs.setString(
+        'profileImage',
+        (user['profileImage'] ?? '').toString(),
+      );
 
       if (_rememberMe) {
         await prefs.setString('email', email);

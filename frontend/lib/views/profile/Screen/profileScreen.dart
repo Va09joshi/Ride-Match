@@ -79,6 +79,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           isLoading = false;
           _loadError = null;
         });
+        await prefs.setString(
+          'profileImage',
+          (userData?['profileImage'] ?? '').toString(),
+        );
       } else if (response.statusCode == 401) {
         logout();
       } else {

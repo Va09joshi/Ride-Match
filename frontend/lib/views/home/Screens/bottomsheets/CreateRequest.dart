@@ -21,6 +21,8 @@ class CreateLocationRequestScreen extends StatefulWidget {
 class _CreateLocationRequestScreenState
     extends State<CreateLocationRequestScreen> {
   final _formKey = GlobalKey<FormState>();
+  static const Color _primary = Color(0xff113F67);
+  static const Color _bg = Color(0xffF6F8FB);
   final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
   final TextEditingController noteController = TextEditingController();
@@ -274,13 +276,22 @@ class _CreateLocationRequestScreenState
       validator: validator,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: const Color(0xff113F67)),
+        labelStyle: GoogleFonts.dmSans(color: Colors.black54),
+        prefixIcon: Icon(icon, color: _primary),
         suffixIcon: suffix,
         filled: true,
-        fillColor: Colors.white,
+        fillColor: const Color(0xffFBFCFE),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: _primary, width: 1.4),
         ),
       ),
       style: GoogleFonts.dmSans(fontSize: 15),
@@ -290,12 +301,16 @@ class _CreateLocationRequestScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xffF7F9FB),
+      backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: const Color(0xff113F67),
+        backgroundColor: Colors.white,
+        foregroundColor: _primary,
         title: Text(
           "Request Ride",
-          style: GoogleFonts.dmSans(color: Colors.white),
+          style: GoogleFonts.dmSans(
+            color: _primary,
+            fontWeight: FontWeight.w700,
+          ),
         ),
         centerTitle: true,
       ),
@@ -309,24 +324,28 @@ class _CreateLocationRequestScreenState
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xff113F67), Color(0xff34699A)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ],
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: _primary.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.add_location_alt_rounded,
-                        color: Colors.white,
+                        color: _primary,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -339,7 +358,7 @@ class _CreateLocationRequestScreenState
                             style: GoogleFonts.dmSans(
                               fontSize: 17,
                               fontWeight: FontWeight.w700,
-                              color: Colors.white,
+                              color: _primary,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -348,7 +367,7 @@ class _CreateLocationRequestScreenState
                             style: GoogleFonts.dmSans(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
-                              color: Colors.white.withOpacity(0.9),
+                              color: Colors.black54,
                             ),
                           ),
                         ],
@@ -365,6 +384,7 @@ class _CreateLocationRequestScreenState
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade200),
                   boxShadow: const [
                     BoxShadow(
                       color: Colors.black12,
@@ -381,7 +401,7 @@ class _CreateLocationRequestScreenState
                       style: GoogleFonts.dmSans(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
-                        color: const Color(0xff113F67),
+                        color: _primary,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -463,7 +483,8 @@ class _CreateLocationRequestScreenState
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xff113F67),
+                    backgroundColor: _primary,
+                    elevation: 0,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),

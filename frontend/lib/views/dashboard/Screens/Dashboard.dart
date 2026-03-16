@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
 import 'package:http/http.dart' as http;
 
@@ -20,6 +21,8 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  String? _profileImageUrl;
+
   Widget buildNavItem(IconData icon, String label, int index) {
     bool active = _currentIndex == index;
     return Expanded(
@@ -29,19 +32,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             if (label == "Profile")
-              FutureBuilder<String?>(
-                future: _getProfileImageUrl(),
-                builder: (context, snapshot) {
-                  final url = snapshot.data;
-                  return CircleAvatar(
-                    radius: 15,
-                    backgroundColor: Colors.white,
-                    backgroundImage: url != null && url.isNotEmpty
-                        ? NetworkImage(url)
-                        : AssetImage('assets/images/default_avatar.png')
-                              as ImageProvider,
-                  );
-                },
+              CircleAvatar(
+                radius: 15,
+                backgroundColor: Colors.white,
+                backgroundImage:
+                    _profileImageUrl != null && _profileImageUrl!.isNotEmpty
+                    ? NetworkImage(_profileImageUrl!)
+                    : AssetImage('assets/images/default_avatar.png')
+                          as ImageProvider,
               )
             else
               Icon(
@@ -72,18 +70,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<String?> _getProfileImageUrl() async {
     final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString('profileImage');
+    if (cached != null && cached.isNotEmpty) {
+      return cached;
+    }
     final token = prefs.getString('token');
     if (token == null) return null;
     final response = await http.get(
-      Uri.parse(AppEndpoints.authMe),
+      AppApi.uri(AppEndpoints.authMe),
       headers: {'Authorization': 'Bearer $token'},
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       final user = data['user'] ?? data;
-      return user['profileImage']?.toString();
+      final profileUrl = user['profileImage']?.toString() ?? '';
+      await prefs.setString('profileImage', profileUrl);
+      return profileUrl;
     }
     return null;
+  }
+
+  Future<void> _loadProfileImage() async {
+    final url = await _getProfileImageUrl();
+    if (!mounted) return;
+    setState(() {
+      _profileImageUrl = url;
+    });
   }
 
   int _currentIndex = 0;
@@ -100,11 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       const PostScreen(),
       const ProfileScreen(),
     ];
-    // ...existing code...
-
-    // ...existing code...
-
-    // ...existing code...
+    _loadProfileImage();
   }
 
   @override
