@@ -43,6 +43,9 @@ router.patch('/:rideId/respond', auth, respondToRequest);
 // User's ride requests
 router.get('/requests/:userId', auth, getUserRequests);
 
+// Standalone ride request (no specific rideId needed)
+router.post('/requests/create', auth, requestRide);
+
 // Nearby ride requests list
 router.get('/requests/nearby/list', auth, getNearbyRideRequests);
 

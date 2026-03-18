@@ -633,3 +633,76 @@ exports.toggleLike = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+// -------------------------------------------------------
+// CREATE RIDE REQUEST (POST /:rideId/request)
+// -------------------------------------------------------
+exports.requestRide = async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const userId = req.user?.id || req.body.userId;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    const { from, to, date, time, note, location } = req.body;
+
+    if (!from || !to) {
+      return res.status(400).json({ success: false, message: 'from and to are required' });
+    }
+
+    // Resolve the rideId: if empty or 'create', treat as standalone request
+    let resolvedRideId = rideId;
+    if (!resolvedRideId || resolvedRideId === 'create' || resolvedRideId.trim() === '') {
+      // For standalone requests, we need a placeholder ride or just use a dummy
+      // Create with a valid rideId if one exists, or find a matching ride
+      const matchingRide = await Ride.findOne({
+        status: { $in: ['created', 'active'] },
+      }).sort({ createdAt: -1 });
+      resolvedRideId = matchingRide ? matchingRide._id : null;
+    } else {
+      // Validate the ride exists
+      const ride = await Ride.findById(resolvedRideId);
+      if (!ride) {
+        return res.status(404).json({ success: false, message: 'Ride not found' });
+      }
+    }
+
+    // Ensure location coordinates
+    let requestLocation = location;
+    if (!requestLocation || !requestLocation.coordinates || requestLocation.coordinates.length < 2) {
+      requestLocation = { type: 'Point', coordinates: [0, 0] };
+    }
+
+    const requestData = {
+      userId,
+      from,
+      to,
+      date: date || new Date().toISOString().split('T')[0],
+      time: time || '00:00',
+      note: note || '',
+      location: requestLocation,
+      status: 'requested',
+    };
+
+    if (resolvedRideId) {
+      requestData.rideId = resolvedRideId;
+    }
+
+    const newRequest = new RideRequest(requestData);
+    await newRequest.save();
+
+    // Populate user info before returning
+    await newRequest.populate('userId', 'name email profileImage');
+
+    res.status(201).json({
+      success: true,
+      message: 'Ride request created successfully',
+      request: newRequest,
+    });
+  } catch (err) {
+    console.error('requestRide error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Server error' });
+  }
+};
