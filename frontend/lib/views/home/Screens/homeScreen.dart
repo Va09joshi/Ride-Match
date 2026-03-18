@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
@@ -87,14 +90,81 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Load custom marker icon
   Future<void> _loadMarkerIcon() async {
     try {
-      rideMarkerIcon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
+      // Build a small marker bitmap so large source assets don't appear huge on map.
+      // The source image includes a light checker background; clear those pixels.
+      rideMarkerIcon = await _createMarkerFromAsset(
         'assets/images/ride_marker.png',
+        size: 92,
       );
     } catch (e) {
-      // fallback silently
-      rideMarkerIcon = null;
+      try {
+        rideMarkerIcon = await _createMarkerFromAsset(
+          'assets/images/car.png',
+          size: 92,
+        );
+      } catch (_) {
+        rideMarkerIcon = null;
+      }
     }
+  }
+
+  Future<BitmapDescriptor> _createMarkerFromAsset(
+    String assetPath, {
+    int size = 92,
+  }) async {
+    final byteData = await rootBundle.load(assetPath);
+    final codec = await ui.instantiateImageCodec(
+      byteData.buffer.asUint8List(),
+      targetWidth: size,
+      targetHeight: size,
+    );
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+
+    final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (raw == null) {
+      final png = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (png == null) {
+        throw Exception('Unable to decode marker image: $assetPath');
+      }
+      return BitmapDescriptor.fromBytes(png.buffer.asUint8List());
+    }
+
+    final bytes = Uint8List.fromList(raw.buffer.asUint8List());
+
+    for (int i = 0; i < bytes.length; i += 4) {
+      final r = bytes[i];
+      final g = bytes[i + 1];
+      final b = bytes[i + 2];
+      final a = bytes[i + 3];
+
+      if (a == 0) continue;
+
+      final isLight = r > 175 && g > 175 && b > 175;
+      final isNeutral = (r - g).abs() <= 20 && (g - b).abs() <= 20;
+
+      if (isLight && isNeutral) {
+        bytes[i + 3] = 0;
+      }
+    }
+
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = ui.ImageDescriptor.raw(
+      buffer,
+      width: image.width,
+      height: image.height,
+      pixelFormat: ui.PixelFormat.rgba8888,
+    );
+    final outCodec = await descriptor.instantiateCodec();
+    final outFrame = await outCodec.getNextFrame();
+    final pngData = await outFrame.image.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
+    if (pngData == null) {
+      throw Exception('Unable to create marker bytes from $assetPath');
+    }
+
+    return BitmapDescriptor.fromBytes(pngData.buffer.asUint8List());
   }
 
   // Initialization
@@ -181,13 +251,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => isLoading = true);
     try {
       final Uri endpoint = _currentPosition == null
-          ? AppApi.uri(AppEndpoints.rides)
+          ? AppApi.uri(
+              AppEndpoints.rides,
+              queryParameters: {
+                if ((currentUserId ?? '').isNotEmpty)
+                  'excludeUserId': currentUserId,
+              },
+            )
           : AppApi.uri(
               AppEndpoints.ridesNearby,
               queryParameters: {
                 'longitude': _currentPosition!.longitude,
                 'latitude': _currentPosition!.latitude,
                 'maxDistance': _nearbyDistanceMeters,
+                if ((currentUserId ?? '').isNotEmpty)
+                  'excludeUserId': currentUserId,
               },
             );
 
@@ -278,25 +356,23 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return distanceMeters <= _nearbyDistanceMeters;
   }
 
-  // Add all ride markers for upcoming nearby rides
-  void _addRideMarkers() {
-    // remove only previous ride_* markers (keep booked markers)
-    _markers.removeWhere((m) => m.markerId.value.startsWith('ride_'));
-
+  List<Map<String, dynamic>> _visibleNearbyRides() {
     final from = fromController.text.toLowerCase().trim();
     final to = toController.text.toLowerCase().trim();
+    final List<Map<String, dynamic>> visible = [];
 
-    for (var ride in ridePosts) {
+    for (final raw in ridePosts) {
+      if (raw is! Map) continue;
+      final ride = Map<String, dynamic>.from(raw as Map);
+
       String? driverId;
-
       if (ride['driverId'] is String) {
         driverId = ride['driverId'];
       } else if (ride['driverId'] is Map && ride['driverId']['_id'] != null) {
         driverId = ride['driverId']['_id'];
       }
 
-      final isOwnRide = driverId == currentUserId;
-      if (isOwnRide) continue; // Don't show own rides on the map
+      if (driverId == currentUserId) continue;
       if (!_isUpcomingRide(ride)) continue;
 
       final seats =
@@ -314,6 +390,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (ridePos == null) continue;
       if (!_isNearby(ridePos)) continue;
 
+      visible.add(ride);
+    }
+
+    return visible;
+  }
+
+  // Add all ride markers for upcoming nearby rides
+  void _addRideMarkers() {
+    // remove only previous ride_* markers (keep booked markers)
+    _markers.removeWhere((m) => m.markerId.value.startsWith('ride_'));
+
+    final visibleRides = _visibleNearbyRides();
+    for (final ride in visibleRides) {
+      final ridePos = _extractRideLocation(ride);
+      if (ridePos == null) continue;
+
       final markerId = MarkerId('ride_${ride['_id']}');
 
       _markers.add(
@@ -321,6 +413,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           markerId: markerId,
           position: ridePos,
           icon: rideMarkerIcon ?? BitmapDescriptor.defaultMarker,
+          anchor: const Offset(0.5, 0.5),
           infoWindow: InfoWindow(
             title: "${ride['from']} → ${ride['to']}",
             snippet:
@@ -440,6 +533,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
@@ -450,6 +544,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final driverPhone = (ride['driverPhone'] ?? driver?['phone'] ?? '')
             .toString()
             .trim();
+        final driverImg = _rideDriverImage(ride);
+        final hasProfileImg = driverImg != null && driverImg.trim().isNotEmpty;
+
         final carName = (ride['carDetails']?['name'] ?? '').toString().trim();
         final carNumber = (ride['carDetails']?['number'] ?? '')
             .toString()
@@ -460,148 +557,310 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           carNumber,
           carColor,
         ].where((v) => v.isNotEmpty).join(' • ');
+
         final seats = (ride["availableSeats"] ?? ride["seats"] ?? 1).toString();
-        final rideStatus = (ride['status'] ?? 'created')
-            .toString()
-            .toUpperCase();
+        final amount = (ride['amount'] ?? '0').toString();
+        final rideStatus = (ride['status'] ?? 'created').toString();
+        final statusLabel = rideStatus.replaceAll('_', ' ').toUpperCase();
+
         final departure = _departureDateTime(Map<String, dynamic>.from(ride));
+        final months = [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ];
         final departureText = departure == null
             ? "Not specified"
-            : "${departure.day.toString().padLeft(2, '0')}-${departure.month.toString().padLeft(2, '0')}-${departure.year} ${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}";
-        final description =
-            (ride["description"] ??
-                    ride["note"] ??
-                    "Comfortable ride with verified driver")
-                .toString();
+            : "${departure.day} ${months[departure.month - 1]} ${departure.year}, ${departure.hour.toString().padLeft(2, '0')}:${departure.minute.toString().padLeft(2, '0')}";
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Title
-              Text(
-                "${ride['from']} → ${ride['to']}",
-                style: GoogleFonts.dmSans(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.black87,
-                ),
-              ),
+        final fromPlace = (ride['from'] ?? 'Pickup').toString();
+        final toPlace = (ride['to'] ?? 'Drop').toString();
 
-              const SizedBox(height: 16),
+        Color statusColor;
+        switch (rideStatus) {
+          case 'active':
+            statusColor = Colors.blue;
+            break;
+          case 'in_progress':
+            statusColor = Colors.orange;
+            break;
+          case 'completed':
+            statusColor = Colors.green;
+            break;
+          case 'cancelled':
+            statusColor = Colors.red;
+            break;
+          default:
+            statusColor = Colors.blueGrey;
+        }
 
-              // Driver + bike info card
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Row(
-                  children: [
-                    // Avatar
-                    CircleAvatar(
-                      radius: 26,
-                      backgroundImage: NetworkImage(
-                        (_rideDriverImage(ride) ?? '').toString().trim().isEmpty
-                            ? AppConstant.defaultProfileImage
-                            : _rideDriverImage(ride)!,
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.85,
+          builder: (context, scrollController) {
+            return SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(width: 14),
+                  ),
 
-                    // Driver info
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            driverName,
-                            style: GoogleFonts.dmSans(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            vehicleInfo.isEmpty
-                                ? 'Vehicle not listed'
-                                : vehicleInfo,
-                            style: GoogleFonts.dmSans(
-                              fontSize: 15,
-                              color: Colors.black54,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            driverPhone.isEmpty
-                                ? 'Phone not available'
-                                : driverPhone,
-                            style: GoogleFonts.dmSans(
-                              fontSize: 13,
-                              color: Colors.black54,
-                            ),
-                          ),
-                        ],
-                      ),
+                  // Route visualization
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F7FA),
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              _infoTile("Ride summary", "${ride["from"]} → ${ride["to"]}"),
-              const SizedBox(height: 10),
-              _infoTile("Departure", departureText),
-              const SizedBox(height: 10),
-              _infoTile("Available seats", seats),
-              const SizedBox(height: 10),
-              _infoTile("Ride status", rideStatus.replaceAll('_', ' ')),
-              const SizedBox(height: 10),
-              _infoTile("Short description", description),
-
-              const SizedBox(height: 28),
-
-              // View full ride button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context); // close sheet
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => RideDetailsScreen(
-                          rideData: ride,
-                          currentUserId: currentUserId ?? '',
+                    child: Row(
+                      children: [
+                        // Route dots + line
+                        Column(
+                          children: [
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade600,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            Container(
+                              width: 2,
+                              height: 30,
+                              color: Colors.grey.shade400,
+                            ),
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: const BoxDecoration(
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(width: 14),
+                        // Place names
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                fromPlace,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
+                                toPlace,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Chips row: seats, price, status
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _chip(
+                        Icons.event_seat_outlined,
+                        '$seats seats',
+                        Colors.indigo,
                       ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xff113F67),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
+                      _chip(
+                        Icons.currency_rupee,
+                        '₹$amount',
+                        Colors.green.shade700,
+                      ),
+                      _chip(Icons.circle, statusLabel, statusColor),
+                    ],
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Departure
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.schedule_rounded,
+                          color: Colors.orange.shade700,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          departureText,
+                          style: GoogleFonts.dmSans(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.orange.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Driver card
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F4F8),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                  ),
-                  child: Text(
-                    "View Full Ride",
-                    style: GoogleFonts.dmSans(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 24,
+                          backgroundColor: Colors.grey.shade300,
+                          backgroundImage: hasProfileImg
+                              ? NetworkImage(driverImg!)
+                              : null,
+                          child: !hasProfileImg
+                              ? Icon(
+                                  Icons.person,
+                                  color: Colors.grey.shade600,
+                                  size: 24,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                driverName,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (vehicleInfo.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    vehicleInfo,
+                                    style: GoogleFonts.dmSans(
+                                      fontSize: 13,
+                                      color: Colors.black54,
+                                    ),
+                                  ),
+                                ),
+                              if (driverPhone.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    driverPhone,
+                                    style: GoogleFonts.dmSans(
+                                      fontSize: 12,
+                                      color: Colors.black45,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ),
 
-              const SizedBox(height: 8),
-            ],
-          ),
+                  const SizedBox(height: 24),
+
+                  // Open Ride button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => RideDetailsScreen(
+                              rideData: ride,
+                              currentUserId: currentUserId ?? '',
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.open_in_new_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xff113F67),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 2,
+                      ),
+                      label: Text(
+                        "Open Ride Details",
+                        style: GoogleFonts.dmSans(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -692,34 +951,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               iconBgColor: Colors.green.shade50,
               iconColor: Colors.green.shade700,
               onTap: () {
-                Navigator.pop(context);
-                Map<String, dynamic>? eligibleRide;
-                for (final raw in ridePosts) {
-                  if (raw is! Map<String, dynamic>) continue;
-                  final driver = raw['driverId'];
-                  final driverId = driver is Map ? driver['_id'] : driver;
-                  final seats =
-                      int.tryParse((raw['availableSeats'] ?? '0').toString()) ??
-                      0;
-                  if (driverId?.toString() == currentUserId) continue;
-                  if (seats <= 0) continue;
-                  if (!_isUpcomingRide(raw)) continue;
-                  eligibleRide = raw;
-                  break;
-                }
+                final rides = _visibleNearbyRides();
+                final String rideId = rides.isNotEmpty
+                    ? (rides.first['_id'] ?? '').toString()
+                    : '';
 
-                if (eligibleRide != null &&
-                    (eligibleRide['_id'] ?? '').toString().isNotEmpty) {
-                  openCreateLocationRequest(
-                    (eligibleRide['_id'] ?? '').toString(),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("No nearby rides available to request."),
-                    ),
-                  );
-                }
+                Navigator.pop(context);
+                Future.delayed(const Duration(milliseconds: 120), () {
+                  if (!mounted) return;
+                  openCreateLocationRequest(rideId);
+                });
               },
             ),
           ],
@@ -794,7 +1035,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget _drawerTile(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
       leading: Icon(icon, color: const Color(0xff113F67)),
-      title: Text(title, style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w500)),
+      title: Text(
+        title,
+        style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w500),
+      ),
       trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
       onTap: onTap,
       dense: true,
@@ -811,8 +1055,115 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showAllNearbyRidesSheet() {
+    final rides = _visibleNearbyRides();
+    if (rides.isEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 52,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Nearby Ride Posts (${rides.length})',
+                  style: GoogleFonts.dmSans(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xff113F67),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: rides.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final ride = rides[index];
+                      final driverName = (ride['driverId'] is Map)
+                          ? (ride['driverId']['name'] ?? 'Driver').toString()
+                          : 'Driver';
+
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _showRideDetail(ride);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xffF6FAFF),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xffE1EAF5)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${ride['from']} -> ${ride['to']}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: const Color(0xff102A43),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$driverName • ₹${ride['amount'] ?? 0} • ${ride['availableSeats'] ?? 0} seats',
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  color: const Color(0xff486581),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${ride['date'] ?? '-'} ${ride['time'] ?? '-'}',
+                                style: GoogleFonts.dmSans(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final nearbyVisibleRides = _visibleNearbyRides();
+
     return Scaffold(
       backgroundColor: Colors.white,
       drawer: Drawer(
@@ -822,7 +1173,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             UserAccountsDrawerHeader(
               accountName: Text(
                 userName ?? "RideMatch User",
-                style: GoogleFonts.dmSans(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+                style: GoogleFonts.dmSans(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Colors.white,
+                ),
               ),
               accountEmail: Text(
                 fullAddress ?? "Welcome to RideMatch",
@@ -832,40 +1187,74 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               currentAccountPicture: CircleAvatar(
                 backgroundColor: Colors.white,
                 child: Text(
-                  userName != null && userName!.isNotEmpty ? userName![0].toUpperCase() : "U",
-                  style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Color(0xff113F67)),
+                  userName != null && userName!.isNotEmpty
+                      ? userName![0].toUpperCase()
+                      : "U",
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xff113F67),
+                  ),
                 ),
               ),
-              decoration: const BoxDecoration(
-                color: Color(0xff113F67),
-              ),
+              decoration: const BoxDecoration(color: Color(0xff113F67)),
             ),
-            _drawerTile(Icons.person_outline, "My Profile", () { Navigator.pop(context); }),
-            _drawerTile(Icons.directions_car_outlined, "My Rides", () { Navigator.pop(context); }),
-            _drawerTile(Icons.history, "Ride History", () { Navigator.pop(context); }),
-            _drawerTile(Icons.payment_outlined, "Payments", () { Navigator.pop(context); }),
-            _drawerTile(Icons.settings_outlined, "Settings", () { Navigator.pop(context); }),
+            _drawerTile(Icons.person_outline, "My Profile", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.directions_car_outlined, "My Rides", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.history, "Ride History", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.payment_outlined, "Payments", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.settings_outlined, "Settings", () {
+              Navigator.pop(context);
+            }),
             const Divider(height: 1),
-            _drawerTile(Icons.info_outline, "About RideMatch", () { Navigator.pop(context); }),
-            _drawerTile(Icons.description_outlined, "Terms & Privacy", () { Navigator.pop(context); }),
-            _drawerTile(Icons.star_outline, "Rate Us", () { Navigator.pop(context); }),
-            _drawerTile(Icons.help_outline, "Help & Support", () { Navigator.pop(context); }),
+            _drawerTile(Icons.info_outline, "About RideMatch", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.description_outlined, "Terms & Privacy", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.star_outline, "Rate Us", () {
+              Navigator.pop(context);
+            }),
+            _drawerTile(Icons.help_outline, "Help & Support", () {
+              Navigator.pop(context);
+            }),
             const Spacer(),
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
-              title: Text('Logout', style: GoogleFonts.dmSans(fontSize: 16, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              title: Text(
+                'Logout',
+                style: GoogleFonts.dmSans(
+                  fontSize: 16,
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               onTap: () async {
                 SharedPreferences prefs = await SharedPreferences.getInstance();
                 await prefs.clear();
                 if (mounted) {
-                  Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                  Navigator.of(
+                    context,
+                  ).pushNamedAndRemoveUntil('/', (route) => false);
                 }
               },
             ),
             Padding(
               padding: const EdgeInsets.only(bottom: 16, top: 8),
-              child: Text("RideMatch v1.0.0", style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey)),
+              child: Text(
+                "RideMatch v1.0.0",
+                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey),
+              ),
             ),
           ],
         ),
@@ -1117,30 +1506,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
 
-      // Booked rides indicator chip
-      bottomNavigationBar: ridePosts.isNotEmpty
+      // Nearby rides indicator chip
+      bottomNavigationBar: nearbyVisibleRides.isNotEmpty
           ? Container(
               color: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               child: GestureDetector(
                 onTap: () {
-                  if (ridePosts.isNotEmpty) {
-                    _showRideDetail(ridePosts.first);
-                  }
+                  _showAllNearbyRidesSheet();
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xff113F67),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.directions_car, color: Colors.white, size: 22),
+                      const Icon(
+                        Icons.directions_car,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          "${ridePosts.length} ride${ridePosts.length > 1 ? 's' : ''} nearby",
+                          "${nearbyVisibleRides.length} ride${nearbyVisibleRides.length > 1 ? 's' : ''} nearby",
                           style: GoogleFonts.dmSans(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -1149,7 +1543,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
@@ -1202,6 +1599,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       style: const TextStyle(
         color: Colors.black87,
         fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.dmSans(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

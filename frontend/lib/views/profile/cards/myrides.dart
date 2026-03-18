@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/home/Screens/bottomsheets/CreateRide.dart';
-import 'package:ridematch/views/home/Screens/bottomsheets/CreateRequest.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -18,15 +17,12 @@ class MyRidesScreen extends StatefulWidget {
 
 class _MyRidesScreenState extends State<MyRidesScreen> {
   List ridesCreated = [];
-  List rideRequests = [];
   bool isLoadingRides = false;
-  bool isLoadingRequests = false;
 
   @override
   void initState() {
     super.initState();
     _fetchRidesCreated();
-    _fetchRideRequests();
   }
 
   String _safeText(dynamic value, {String fallback = '-'}) {
@@ -65,40 +61,6 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
       _showError('Error fetching rides: $e');
     } finally {
       if (mounted) setState(() => isLoadingRides = false);
-    }
-  }
-
-  Future<void> _fetchRideRequests() async {
-    setState(() => isLoadingRequests = true);
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getString('userId');
-      final token = prefs.getString('token');
-
-      if (userId == null || token == null) {
-        _showError('User not logged in.');
-        return;
-      }
-
-      final response = await http.get(
-        AppApi.uri(AppEndpoints.rideRequestsByUser(userId)),
-        headers: {'Authorization': 'Bearer $token'},
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (!mounted) return;
-        setState(() => rideRequests = data['requests'] ?? []);
-      } else {
-        _showError(
-          'Failed to fetch ride requests: ${response.statusCode} ${response.body}',
-        );
-      }
-    } catch (e) {
-      _showError('Error fetching ride requests: $e');
-    } finally {
-      if (mounted) setState(() => isLoadingRequests = false);
     }
   }
 
@@ -509,7 +471,6 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
           IconButton(
             onPressed: () async {
               await _fetchRidesCreated();
-              await _fetchRideRequests();
             },
             icon: const Icon(Icons.refresh_rounded, color: Colors.white),
           ),
@@ -535,37 +496,11 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
               }
             },
           ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            backgroundColor: const Color(0xff0A2A66),
-            icon: const Icon(Icons.add_task, color: Colors.white),
-            label: const Text(
-              'Add Request',
-              style: TextStyle(color: Colors.white),
-            ),
-            onPressed: () async {
-              if (ridesCreated.isEmpty) {
-                _showError('Please create a ride first!');
-                return;
-              }
-              final rideId = ridesCreated.first['_id'];
-              final newRequest = await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => CreateLocationRequestScreen(rideId: rideId),
-                ),
-              );
-              if (newRequest != null && mounted) {
-                setState(() => rideRequests.insert(0, newRequest));
-              }
-            },
-          ),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
           await _fetchRidesCreated();
-          await _fetchRideRequests();
         },
         child: ListView(
           physics: const BouncingScrollPhysics(),
@@ -588,15 +523,6 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
                       const Color(0xff113F67),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _statCard(
-                      'Requests',
-                      rideRequests.length,
-                      Icons.request_page,
-                      const Color(0xff0A2A66),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -612,22 +538,6 @@ class _MyRidesScreenState extends State<MyRidesScreen> {
               )
             else
               Column(children: ridesCreated.map(_buildRideCard).toList()),
-            const SizedBox(height: 24),
-            _sectionHeader(
-              'Ride Requests',
-              rideRequests.length,
-              Icons.request_page,
-            ),
-            const SizedBox(height: 10),
-            if (isLoadingRequests)
-              Column(children: List.generate(3, (_) => _shimmerRequestCard()))
-            else if (rideRequests.isEmpty)
-              _emptyCard(
-                'No ride requests yet',
-                'Create a request and it will appear here.',
-              )
-            else
-              Column(children: rideRequests.map(_buildRequestCard).toList()),
           ],
         ),
       ),

@@ -349,14 +349,16 @@ class _RideScreenState extends State<RideScreen> {
         final seats =
             int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
         if (seats <= 0) return false;
-        final distance = _distanceKm(ride);
-        if (distance == null) return true;
-        return distance <= (_nearbyDistanceMeters / 1000);
+        return true;
       }).toList();
 
       // Also remove rides user already booked from nearby
-      final bookedRideIds = bookedRides.map((r) => (r['_id'] ?? '').toString()).toSet();
-      nearbyRides.removeWhere((ride) => bookedRideIds.contains((ride['_id'] ?? '').toString()));
+      final bookedRideIds = bookedRides
+          .map((r) => (r['_id'] ?? '').toString())
+          .toSet();
+      nearbyRides.removeWhere(
+        (ride) => bookedRideIds.contains((ride['_id'] ?? '').toString()),
+      );
 
       nearbyRides.sort((a, b) {
         final aDistance = _distanceKm(a) ?? 9999;
@@ -366,12 +368,12 @@ class _RideScreenState extends State<RideScreen> {
 
       final activeMyRides = myRides.where((ride) {
         final status = _rideStatus(ride);
-        return _isLiveStatus(status) && !_isPastRide(ride);
+        return _isLiveStatus(status);
       }).toList();
 
       final activeBooked = bookedRides.where((ride) {
         final status = _rideStatus(ride);
-        return _isLiveStatus(status) && !_isPastRide(ride);
+        return _isLiveStatus(status);
       }).toList();
 
       final history = myRides.where((ride) {
@@ -494,7 +496,9 @@ class _RideScreenState extends State<RideScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Complete Ride'),
-        content: const Text('Are you sure you want to mark this ride as completed?'),
+        content: const Text(
+          'Are you sure you want to mark this ride as completed?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -503,7 +507,10 @@ class _RideScreenState extends State<RideScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, Complete', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Yes, Complete',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -531,7 +538,9 @@ class _RideScreenState extends State<RideScreen> {
         SnackBar(
           content: Text(
             (payload['message'] ??
-                    (success ? 'Ride completed successfully.' : 'Failed to complete ride.'))
+                    (success
+                        ? 'Ride completed successfully.'
+                        : 'Failed to complete ride.'))
                 .toString(),
           ),
         ),
@@ -569,7 +578,10 @@ class _RideScreenState extends State<RideScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yes, Start!', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Yes, Start!',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -733,26 +745,45 @@ class _RideScreenState extends State<RideScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xfff4f6fb),
+      backgroundColor: const Color(0xFFF2F4F8),
       appBar: AppBar(
         automaticallyImplyLeading: false,
         backgroundColor: const Color(0xff113F67),
-        title: Text(
-          "Rides",
-          style: GoogleFonts.lato(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
+        elevation: 0,
         centerTitle: true,
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.directions_car_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "My Rides",
+              style: GoogleFonts.dmSans(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            onPressed: () => _fetchRides(isRefresh: true),
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+          ),
+        ],
       ),
       body: _loading
           ? _buildShimmerScreen()
           : (_myActiveRides.isEmpty &&
                 _myBookedRides.isEmpty &&
                 _rideHistory.isEmpty &&
-                _nearbyRides.isEmpty)
+                _nearbyRides.isEmpty &&
+                _incomingRequests.isEmpty)
           ? _emptyView()
           : RefreshIndicator(
               onRefresh: () => _fetchRides(isRefresh: true),
@@ -769,7 +800,10 @@ class _RideScreenState extends State<RideScreen> {
                   if (_refreshing)
                     const Padding(
                       padding: EdgeInsets.only(bottom: 12),
-                      child: LinearProgressIndicator(minHeight: 3),
+                      child: LinearProgressIndicator(
+                        minHeight: 3,
+                        color: Color(0xff113F67),
+                      ),
                     ),
                   _tabContent(),
                 ],
@@ -780,55 +814,88 @@ class _RideScreenState extends State<RideScreen> {
 
   Widget _profileCard() {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xff113F67),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.white24,
-            backgroundImage:
-                (_profileImage != null && _profileImage!.isNotEmpty)
-                ? NetworkImage(_profileImage!)
-                : null,
-            child: (_profileImage != null && _profileImage!.isNotEmpty)
-                ? null
-                : Text(
-                    _profileName.isNotEmpty
-                        ? _profileName[0].toUpperCase()
-                        : 'U',
-                    style: GoogleFonts.dmSans(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xff113F67).withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.white24,
+                backgroundImage:
+                    (_profileImage != null && _profileImage!.isNotEmpty)
+                    ? NetworkImage(_profileImage!)
+                    : null,
+                child: (_profileImage == null || _profileImage!.isEmpty)
+                    ? Text(
+                        _profileName.isNotEmpty
+                            ? _profileName[0].toUpperCase()
+                            : 'U',
+                        style: GoogleFonts.dmSans(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _profileName,
+                      style: GoogleFonts.dmSans(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _profileEmail.isEmpty
+                          ? 'Manage your rides'
+                          : _profileEmail,
+                      style: GoogleFonts.dmSans(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          // Stats row
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                Text(
-                  _profileName,
-                  style: GoogleFonts.dmSans(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  _profileEmail.isEmpty
-                      ? 'Manage your rides and requests'
-                      : _profileEmail,
-                  style: GoogleFonts.dmSans(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12,
-                  ),
-                ),
+                _statItem('Created', _myActiveRides.length.toString()),
+                _statDivider(),
+                _statItem('Booked', _myBookedRides.length.toString()),
+                _statDivider(),
+                _statItem('Nearby', _nearbyRides.length.toString()),
+                _statDivider(),
+                _statItem('History', _rideHistory.length.toString()),
               ],
             ),
           ),
@@ -837,56 +904,124 @@ class _RideScreenState extends State<RideScreen> {
     );
   }
 
+  Widget _statItem(String label, String value) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: GoogleFonts.dmSans(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: GoogleFonts.dmSans(
+            color: Colors.white60,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _statDivider() {
+    return Container(width: 1, height: 28, color: Colors.white24);
+  }
+
   Widget _rideTabs() {
-    final tabs = ['My Rides', 'Booked', 'Nearby Rides', 'Ride History'];
+    final tabs = [
+      {'label': 'My Rides', 'count': _myActiveRides.length},
+      {'label': 'Booked', 'count': _myBookedRides.length},
+      {'label': 'Nearby', 'count': _nearbyRides.length},
+      {'label': 'History', 'count': _rideHistory.length},
+    ];
     return Container(
-      padding: const EdgeInsets.all(6),
+      padding: const EdgeInsets.all(5),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
-        children: List.generate(
-          tabs.length,
-          (index) => Expanded(
+        children: List.generate(tabs.length, (index) {
+          final isSelected = _selectedTabIndex == index;
+          final count = tabs[index]['count'] as int;
+          return Expanded(
             child: GestureDetector(
               onTap: () => setState(() => _selectedTabIndex = index),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
-                  color: _selectedTabIndex == index
+                  color: isSelected
                       ? const Color(0xff113F67)
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(
-                  tabs[index],
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.dmSans(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
-                    color: _selectedTabIndex == index
-                        ? Colors.white
-                        : const Color(0xff113F67),
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      tabs[index]['label'] as String,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.dmSans(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xff113F67),
+                      ),
+                    ),
+                    if (count > 0) ...[
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? Colors.white.withOpacity(0.2)
+                              : const Color(0xff113F67).withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          count.toString(),
+                          style: GoogleFonts.dmSans(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: isSelected
+                                ? Colors.white
+                                : const Color(0xff113F67),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
-          ),
-        ),
+          );
+        }),
       ),
     );
   }
 
   Widget _tabContent() {
     if (_selectedTabIndex == 0) {
-      final hasNoMyRideData = _myActiveRides.isEmpty;
-      if (hasNoMyRideData) {
-        return _sectionEmpty('No created/active rides by you.');
-      }
-
-      return Column(children: _myActiveRides.map(_myRideCard).toList());
+      return _myActiveRides.isEmpty
+          ? _sectionEmpty('No created/active rides by you.')
+          : Column(children: _myActiveRides.map(_myRideCard).toList());
     }
 
     if (_selectedTabIndex == 1) {
@@ -907,22 +1042,48 @@ class _RideScreenState extends State<RideScreen> {
   }
 
   Widget _sectionEmpty(String text) {
+    IconData icon;
+    switch (_selectedTabIndex) {
+      case 0:
+        icon = Icons.drive_eta_outlined;
+        break;
+      case 1:
+        icon = Icons.bookmark_border_rounded;
+        break;
+      case 2:
+        icon = Icons.location_on_outlined;
+        break;
+      default:
+        icon = Icons.history_rounded;
+    }
     return Container(
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+      padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Center(
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: GoogleFonts.dmSans(
-            color: Colors.black54,
-            fontWeight: FontWeight.w600,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
-        ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 48, color: Colors.grey.shade300),
+          const SizedBox(height: 12),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.dmSans(
+              color: Colors.black45,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1185,19 +1346,27 @@ class _RideScreenState extends State<RideScreen> {
             style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
           ),
           // Show booked-by names
-          if (ride['_bookedByNames'] != null && (ride['_bookedByNames'] as List).isNotEmpty)
+          if (ride['_bookedByNames'] != null &&
+              (ride['_bookedByNames'] as List).isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.blue.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.people_alt_outlined, size: 16, color: Colors.blue.shade700),
+                    Icon(
+                      Icons.people_alt_outlined,
+                      size: 16,
+                      color: Colors.blue.shade700,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -1268,7 +1437,10 @@ class _RideScreenState extends State<RideScreen> {
                 width: double.infinity,
                 child: ElevatedButton.icon(
                   onPressed: () => _startRide((ride['_id'] ?? '').toString()),
-                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
+                  icon: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blue.shade600,
                     shape: RoundedRectangleBorder(
@@ -1292,8 +1464,12 @@ class _RideScreenState extends State<RideScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => _completeRide((ride['_id'] ?? '').toString()),
-                  icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+                  onPressed: () =>
+                      _completeRide((ride['_id'] ?? '').toString()),
+                  icon: const Icon(
+                    Icons.check_circle_outline,
+                    color: Colors.white,
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade600,
                     shape: RoundedRectangleBorder(

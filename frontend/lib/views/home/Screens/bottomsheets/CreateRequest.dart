@@ -191,8 +191,13 @@ class _CreateLocationRequestScreenState
 
       print("DEBUG: Request Body -> ${json.encode(body)}"); // Debug
 
+      // Use standalone route if no rideId, else ride-specific route
+      final Uri requestUri = widget.rideId.trim().isEmpty
+          ? AppApi.uri('/api/rides/requests/create')
+          : AppApi.uri(AppEndpoints.rideRequest(widget.rideId));
+
       final response = await http.post(
-        AppApi.uri(AppEndpoints.rideRequest(widget.rideId)),
+        requestUri,
         headers: {
           "Content-Type": "application/json",
           "Authorization": "Bearer $token",
