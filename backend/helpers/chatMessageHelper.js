@@ -40,19 +40,23 @@ const createAndDispatchMessage = async ({ senderId, receiverId, message }) => {
   if (!chat) {
     chat = new Chat({
       users: [senderIdStr, receiverIdStr],
-      unreadCount: {
-        [senderIdStr]: 0,
-        [receiverIdStr]: 0,
-      },
+      unreadCount: new Map([
+        [senderIdStr, 0],
+        [receiverIdStr, 0],
+      ]),
     });
   }
 
   chat.lastMessage = trimmedMessage;
   chat.lastMessageTime = new Date();
-  chat.unreadCount.set(
-    receiverIdStr,
-    (chat.unreadCount.get(receiverIdStr) || 0) + 1,
-  );
+  
+  if (!chat.get('unreadCount') || typeof chat.get('unreadCount').set !== 'function') {
+      chat.set('unreadCount', new Map());
+  }
+  
+  const currentUnread = chat.get('unreadCount').get(receiverIdStr) || 0;
+  chat.get('unreadCount').set(receiverIdStr, currentUnread + 1);
+
   await chat.save();
 
   // Create push/in-app notification for receiver.

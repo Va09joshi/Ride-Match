@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Message = require('../models/Message');
+const User = require('../models/user');
 const { createAndDispatchMessage } = require('../helpers/chatMessageHelper');
 
 router.post('/send', async (req, res) => {

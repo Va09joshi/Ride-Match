@@ -63,6 +63,19 @@ const rideSchema = new mongoose.Schema({
       required: false,
     },
   },
+  pickupLocation: {
+    lat: { type: Number, required: false },
+    lng: { type: Number, required: false },
+  },
+  dropLocation: {
+    lat: { type: Number, required: false },
+    lng: { type: Number, required: false },
+  },
+  routeDistanceKm: {
+    type: Number,
+    required: false,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

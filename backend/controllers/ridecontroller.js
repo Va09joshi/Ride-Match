@@ -69,6 +69,9 @@ exports.createRide = async (req, res) => {
       amount,
       carDetails,
       location,
+      pickupLocation,
+      dropLocation,
+      routeDistanceKm,
     } = req.body;
 
     if (!isValidId(driverId)) {
@@ -86,6 +89,9 @@ exports.createRide = async (req, res) => {
       status: 'created',
       carDetails,
       location,
+      pickupLocation,
+      dropLocation,
+      routeDistanceKm,
     });
 
     await ride.save();
@@ -143,7 +149,7 @@ exports.getRides = async (req, res) => {
 // -------------------------------------------------------
 exports.getNearbyRides = async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 10000, excludeUserId } = req.query;
+    const { longitude, latitude, maxDistance = 40000, excludeUserId } = req.query;
 
     if (!longitude || !latitude) {
       return res.status(400).json({
@@ -479,7 +485,7 @@ exports.getUserRequests = async (req, res) => {
 // -------------------------------------------------------
 exports.getNearbyRideRequests = async (req, res) => {
   try {
-    const { longitude, latitude, maxDistance = 15000 } = req.query;
+    const { longitude, latitude, maxDistance = 40000 } = req.query;
 
     if (!longitude || !latitude)
       return res.status(400).json({ success: false, message: "Longitude & Latitude required" });
