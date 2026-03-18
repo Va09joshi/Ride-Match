@@ -1,11 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:ridematch/views/shared_widgets/LocationAutocomplete.dart';
 
 class CreateRideScreen extends StatefulWidget {
   const CreateRideScreen({super.key});
@@ -31,8 +34,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   DateTime? selectedDate;
   TimeOfDay? selectedTime;
   bool isLoading = false;
-  double? currentLat;
-  double? currentLng;
+  double? pickupLat;
+  double? pickupLng;
+  double? dropLat;
+  double? dropLng;
 
   @override
   void initState() {
@@ -55,10 +60,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
     );
 
     setState(() {
-      currentLat = position.latitude;
-      currentLng = position.longitude;
+      pickupLat = position.latitude;
+      pickupLng = position.longitude;
       fromController.text =
-          "Current Location (${position.latitude.toStringAsFixed(2)}, ${position.longitude.toStringAsFixed(2)})";
+          "Current Location (${position.latitude.toStringAsFixed(3)}, ${position.longitude.toStringAsFixed(3)})";
     });
   }
 
@@ -110,6 +115,27 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
     String? userId = prefs.getString('userId');
     String? token = prefs.getString('token');
 
+    if (pickupLat == null || pickupLng == null || dropLat == null || dropLng == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select pickup and destination from the dropdown.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      setState(() => isLoading = false);
+      return;
+    }
+
+    final routeDistanceKm =
+        Geolocator.distanceBetween(
+          pickupLat!,
+          pickupLng!,
+          dropLat!,
+          dropLng!,
+        ) /
+        1000;
+
     final rideData = {
       "driverId": userId,
       "from": fromController.text.trim(),
@@ -126,8 +152,11 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       },
       "location": {
         "type": "Point",
-        "coordinates": [currentLng ?? 0.0, currentLat ?? 0.0],
+        "coordinates": [pickupLng, pickupLat],
       },
+      "pickupLocation": {"lat": pickupLat, "lng": pickupLng},
+      "dropLocation": {"lat": dropLat, "lng": dropLng},
+      "routeDistanceKm": double.parse(routeDistanceKm.toStringAsFixed(2)),
     };
 
     print(" userId: $userId");
@@ -177,6 +206,8 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       setState(() => isLoading = false);
     }
   }
+
+  Future<void> _resolvePoint(String input) async {}
 
   Widget _buildTextField({
     required TextEditingController controller,
@@ -305,7 +336,7 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
               _sectionCard(
                 title: "Ride Details",
                 children: [
-                  _buildTextField(
+                  LocationAutocomplete(
                     controller: fromController,
                     label: "Pickup Location",
                     icon: Icons.location_on_outlined,
@@ -315,15 +346,27 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
                       icon: const Icon(Icons.my_location_rounded),
                       onPressed: _getCurrentLocation,
                     ),
+                    onSelected: (lat, ln) {
+                      setState(() {
+                         pickupLat = lat;
+                         pickupLng = ln;
+                      });
+                    },
                   ),
 
                   const SizedBox(height: 14),
 
-                  _buildTextField(
+                  LocationAutocomplete(
                     controller: toController,
                     label: "Destination",
                     icon: Icons.flag_rounded,
                     validator: (v) => v!.isEmpty ? "Enter destination" : null,
+                    onSelected: (lat, ln) {
+                      setState(() {
+                         dropLat = lat;
+                         dropLng = ln;
+                      });
+                    },
                   ),
 
                   const SizedBox(height: 14),
@@ -495,4 +538,11 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
       ),
     );
   }
+}
+
+class LatLngPoint {
+  final double latitude;
+  final double longitude;
+
+  LatLngPoint(this.latitude, this.longitude);
 }

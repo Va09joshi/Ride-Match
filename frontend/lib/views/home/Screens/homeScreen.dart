@@ -181,19 +181,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => isLoading = true);
     try {
       final Uri endpoint = _currentPosition == null
-          ? AppApi.uri(
-              AppEndpoints.rides,
-              queryParameters: {
-                'excludeUserId': currentUserId ?? '',
-              },
-            )
+          ? AppApi.uri(AppEndpoints.rides)
           : AppApi.uri(
               AppEndpoints.ridesNearby,
               queryParameters: {
                 'longitude': _currentPosition!.longitude,
                 'latitude': _currentPosition!.latitude,
-                'maxDistance': 25000,
-                'excludeUserId': currentUserId ?? '',
+                'maxDistance': _nearbyDistanceMeters,
               },
             );
 
@@ -201,7 +195,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final rides = (data['rides'] is List) ? data['rides'] as List : <dynamic>[];
+        final rides = (data['rides'] is List)
+            ? data['rides'] as List
+            : <dynamic>[];
 
         setState(() {
           ridePosts = rides;
@@ -451,11 +447,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             .toString()
             .trim();
         final carName = (ride['carDetails']?['name'] ?? '').toString().trim();
-        final carNumber = (ride['carDetails']?['number'] ?? '').toString().trim();
+        final carNumber = (ride['carDetails']?['number'] ?? '')
+            .toString()
+            .trim();
         final carColor = (ride['carDetails']?['color'] ?? '').toString().trim();
-        final vehicleInfo = [carName, carNumber, carColor]
-          .where((v) => v.isNotEmpty)
-          .join(' • ');
+        final vehicleInfo = [
+          carName,
+          carNumber,
+          carColor,
+        ].where((v) => v.isNotEmpty).join(' • ');
         final seats = (ride["availableSeats"] ?? ride["seats"] ?? 1).toString();
         final rideStatus = (ride['status'] ?? 'created')
             .toString()
@@ -501,10 +501,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     CircleAvatar(
                       radius: 26,
                       backgroundImage: NetworkImage(
-                        (_rideDriverImage(ride) ?? '')
-                                .toString()
-                                .trim()
-                                .isEmpty
+                        (_rideDriverImage(ride) ?? '').toString().trim().isEmpty
                             ? AppConstant.defaultProfileImage
                             : _rideDriverImage(ride)!,
                       ),
@@ -525,7 +522,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            vehicleInfo.isEmpty ? 'Vehicle not listed' : vehicleInfo,
+                            vehicleInfo.isEmpty
+                                ? 'Vehicle not listed'
+                                : vehicleInfo,
                             style: GoogleFonts.dmSans(
                               fontSize: 15,
                               color: Colors.black54,
@@ -690,12 +689,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               iconColor: Colors.green.shade700,
               onTap: () {
                 Navigator.pop(context);
-                if (ridePosts.isNotEmpty) {
-                  openCreateLocationRequest(ridePosts[0]['_id']);
+                Map<String, dynamic>? eligibleRide;
+                for (final raw in ridePosts) {
+                  if (raw is! Map<String, dynamic>) continue;
+                  final driver = raw['driverId'];
+                  final driverId = driver is Map ? driver['_id'] : driver;
+                  final seats =
+                      int.tryParse((raw['availableSeats'] ?? '0').toString()) ??
+                      0;
+                  if (driverId?.toString() == currentUserId) continue;
+                  if (seats <= 0) continue;
+                  if (!_isUpcomingRide(raw)) continue;
+                  eligibleRide = raw;
+                  break;
+                }
+
+                if (eligibleRide != null &&
+                    (eligibleRide['_id'] ?? '').toString().isNotEmpty) {
+                  openCreateLocationRequest(
+                    (eligibleRide['_id'] ?? '').toString(),
+                  );
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text("No rides available to request."),
+                      content: Text("No nearby rides available to request."),
                     ),
                   );
                 }
@@ -972,8 +989,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             if (img == null || img.isEmpty) return null;
                             return NetworkImage(img);
                           })(),
-                          child: (_rideDriverImage(_selectedMarkerData) == null ||
-                                  _rideDriverImage(_selectedMarkerData)!.isEmpty)
+                          child:
+                              (_rideDriverImage(_selectedMarkerData) == null ||
+                                  _rideDriverImage(
+                                    _selectedMarkerData,
+                                  )!.isEmpty)
                               ? _buildDriverAvatar(
                                   _selectedMarkerData?['driver'] ??
                                       _selectedMarkerData?['driverId']?['name'],

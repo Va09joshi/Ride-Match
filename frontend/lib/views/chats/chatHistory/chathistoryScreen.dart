@@ -20,6 +20,25 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
   List<Map<String, dynamic>> chatList = [];
   bool isLoading = true;
 
+  String _formatTime(dynamic rawTime) {
+    if (rawTime == null || rawTime.toString().isEmpty) return "";
+    try {
+      final dt = DateTime.parse(rawTime.toString()).toLocal();
+      final now = DateTime.now();
+      final isToday =
+          dt.year == now.year && dt.month == now.month && dt.day == now.day;
+      if (isToday) {
+        final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+        final m = dt.minute.toString().padLeft(2, '0');
+        final period = dt.hour >= 12 ? 'PM' : 'AM';
+        return '$h:$m $period';
+      }
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return "";
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -37,8 +56,8 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
           return {
             "chatId": chat["_id"],
             "name": chat["receiverName"] ?? "Unknown",
-            "lastMessage": chat["lastMessage"] ?? "",
-            "time": chat["lastMessageTime"] ?? "",
+            "lastMessage": chat["lastMessage"] ?? "Start conversation",
+            "time": _formatTime(chat["lastMessageTime"]),
             "unread": chat["unreadCount"] ?? 0,
             "profile": chat["receiverProfile"] ?? AppConstant.defaultChatAvatar,
             "receiverId": chat["receiverId"],
@@ -124,7 +143,20 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
           children: [
             CircleAvatar(
               radius: 28,
-              backgroundImage: NetworkImage(chat["profile"]),
+              backgroundColor: const Color(0xffE8EEF9),
+              child: ClipOval(
+                child: Image.network(
+                  chat["profile"],
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const Icon(
+                    Icons.person,
+                    color: Color(0xff09205f),
+                    size: 26,
+                  ),
+                ),
+              ),
             ),
             if (chat["unread"] > 0)
               Positioned(
@@ -159,10 +191,14 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              chat["time"],
-              style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500]),
-            ),
+            if ((chat["time"] ?? '').toString().isNotEmpty)
+              Text(
+                chat["time"],
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                ),
+              ),
             if (chat["unread"] > 0)
               Container(
                 margin: const EdgeInsets.only(top: 6),

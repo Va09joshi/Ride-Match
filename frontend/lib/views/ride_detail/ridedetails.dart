@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -71,6 +72,33 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
     _calculateDistanceETA();
     _prepareMapElements();
+    _resolveRouteFromAddressIfNeeded();
+  }
+
+  Future<void> _resolveRouteFromAddressIfNeeded() async {
+    final hasPickup = widget.rideData['pickupLocation'] != null;
+    final hasDrop = widget.rideData['dropLocation'] != null;
+    if (hasPickup && hasDrop) return;
+
+    final from = (widget.rideData['from'] ?? '').toString().trim();
+    final to = (widget.rideData['to'] ?? '').toString().trim();
+    if (from.isEmpty || to.isEmpty) return;
+
+    try {
+      final fromList = await locationFromAddress(from);
+      final toList = await locationFromAddress(to);
+      if (fromList.isEmpty || toList.isEmpty) return;
+
+      if (!mounted) return;
+      setState(() {
+        pickup = LatLng(fromList.first.latitude, fromList.first.longitude);
+        drop = LatLng(toList.first.latitude, toList.first.longitude);
+      });
+      _calculateDistanceETA();
+      _prepareMapElements();
+    } catch (_) {
+      // Keep existing fallback coordinates when geocoding fails.
+    }
   }
 
   @override

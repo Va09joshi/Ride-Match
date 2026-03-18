@@ -117,7 +117,11 @@ class _PostScreenState extends State<PostScreen> {
         final nearbyResp = await http.get(
           AppApi.uri(
             AppEndpoints.rideRequestsNearby,
-            queryParameters: {'longitude': longitude, 'latitude': latitude},
+            queryParameters: {
+              'longitude': longitude.toString(),
+              'latitude': latitude.toString(),
+              'maxDistance': '40000',
+            },
           ),
           headers: {
             'Content-Type': 'application/json',
@@ -398,6 +402,11 @@ class _PostScreenState extends State<PostScreen> {
           "Nearby Requests",
           style: GoogleFonts.dmSans(fontSize: 18, fontWeight: FontWeight.w700),
         ),
+        if (otherRequests.isEmpty)
+           Padding(
+             padding: const EdgeInsets.symmetric(vertical: 10),
+             child: Text("No nearby requests found.", style: GoogleFonts.dmSans(color: Colors.black54)),
+           ),
         ...otherRequests.map(_buildRequestCard),
       ],
     );

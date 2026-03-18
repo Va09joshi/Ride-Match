@@ -8,6 +8,8 @@ import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:ridematch/views/shared_widgets/LocationAutocomplete.dart';
+
 class CreateLocationRequestScreen extends StatefulWidget {
   final String rideId;
 
@@ -30,6 +32,10 @@ class _CreateLocationRequestScreenState
   DateTime? selectedDate;
   TimeOfDay? selectedTime;
   Position? currentPosition;
+  double? pickupLat;
+  double? pickupLng;
+  double? dropLat;
+  double? dropLng;
   bool isLoading = false;
 
   @override
@@ -75,6 +81,8 @@ class _CreateLocationRequestScreenState
       setState(() {
         currentPosition = position;
         fromController.text = address;
+        pickupLat = position.latitude;
+        pickupLng = position.longitude;
       });
     } catch (e) {
       print("Error getting location: $e");
@@ -118,13 +126,12 @@ class _CreateLocationRequestScreenState
     if (picked != null) setState(() => selectedTime = picked);
   }
 
-  // 📤 Submit Ride Request
   Future<void> _createRequest() async {
     if (!_formKey.currentState!.validate()) return;
-    if (currentPosition == null) {
+    if (pickupLat == null || pickupLng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("⚠️ Unable to get current location!"),
+          content: Text("⚠️ Unable to determine pickup coordinates. Please select from dropdown."),
           backgroundColor: Colors.orange,
           duration: Duration(seconds: 3),
         ),
@@ -176,8 +183,8 @@ class _CreateLocationRequestScreenState
         "location": {
           "type": "Point",
           "coordinates": [
-            currentPosition!.longitude,
-            currentPosition!.latitude,
+            pickupLng,
+            pickupLat,
           ],
         },
       };
@@ -405,7 +412,7 @@ class _CreateLocationRequestScreenState
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _buildTextField(
+                    LocationAutocomplete(
                       controller: fromController,
                       label: "From (Pickup)",
                       icon: Icons.location_on_outlined,
@@ -415,13 +422,25 @@ class _CreateLocationRequestScreenState
                         icon: const Icon(Icons.my_location),
                         onPressed: _getCurrentLocation,
                       ),
+                      onSelected: (lat, ln) {
+                        setState(() {
+                          pickupLat = lat;
+                          pickupLng = ln;
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
-                    _buildTextField(
+                    LocationAutocomplete(
                       controller: toController,
                       label: "To (Destination)",
                       icon: Icons.flag_outlined,
                       validator: (v) => v!.isEmpty ? "Enter destination" : null,
+                      onSelected: (lat, ln) {
+                        setState(() {
+                             dropLat = lat;
+                             dropLng = ln;
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
                     GestureDetector(

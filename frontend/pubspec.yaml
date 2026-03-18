@@ -92,7 +92,7 @@ flutter:
      - assets/images/
      - assets/videos/animation.mp4
      - assets/videos/loading.gif
-      - assets/sounds/
+     - assets/sounds/
 
   #     - images/a_dot_ham.jpeg
 
