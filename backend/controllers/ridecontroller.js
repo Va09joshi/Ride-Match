@@ -74,12 +74,19 @@ exports.createRide = async (req, res) => {
       routeDistanceKm,
     } = req.body;
 
-    if (!isValidId(driverId)) {
+    const authUserId = req.user?.id;
+    const resolvedDriverId = driverId || authUserId;
+
+    if (!isValidId(resolvedDriverId)) {
       return res.status(400).json({ success: false, message: "Invalid driverId" });
     }
 
+    if (authUserId && resolvedDriverId.toString() !== authUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'You can only create rides for your own account' });
+    }
+
     const ride = new Ride({
-      driverId,
+      driverId: resolvedDriverId,
       from,
       to,
       date,
@@ -98,8 +105,8 @@ exports.createRide = async (req, res) => {
 
     // Notify the driver that their ride has been posted
     createNotification({
-      senderId: driverId,
-      receiverId: driverId,
+      senderId: resolvedDriverId,
+      receiverId: resolvedDriverId,
       type: 'ride_created',
       message: `Your ride from ${from} to ${to} has been posted successfully.`,
       relatedId: ride._id.toString(),
@@ -357,57 +364,6 @@ exports.startRide = async (req, res) => {
 // -------------------------------------------------------
 // CREATE RIDE REQUEST
 // -------------------------------------------------------
-exports.requestRide = async (req, res) => {
-  try {
-    const { rideId } = req.params;
-    const { userId, from, to, date, time, note, location } = req.body;
-    const authUserId = req.user?.id;
-
-    if (!isValidId(rideId) || !isValidId(userId)) {
-      return res.status(400).json({ success: false, message: "Invalid rideId or userId" });
-    }
-
-    if (!authUserId || authUserId.toString() !== userId.toString()) {
-      return res.status(403).json({ success: false, message: 'You can only create requests for your own account' });
-    }
-
-    if (!from || !to || !date || !time || !location?.coordinates) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields"
-      });
-    }
-
-    const ride = await Ride.findById(rideId);
-    if (!ride) return res.status(404).json({ success: false, message: "Ride not found" });
-
-    if (ride.availableSeats <= 0)
-      return res.status(400).json({ success: false, message: "No seats available" });
-
-    const existing = await RideRequest.findOne({ rideId, userId });
-    if (existing)
-      return res.status(400).json({ success: false, message: "Already requested" });
-
-    const request = new RideRequest({
-      rideId,
-      userId,
-      from,
-      to,
-      date,
-      time,
-      note,
-      location,
-      status: "requested"
-    });
-
-    await request.save();
-
-    res.status(201).json({ success: true, message: "Ride request created", request });
-  } catch (err) {
-    console.error("Request Error:", err);
-    res.status(500).json({ success: false, message: "Server error", error: err.message });
-  }
-};
 
 // -------------------------------------------------------
 // DRIVER ACCEPT / REJECT REQUEST
@@ -639,11 +595,15 @@ exports.toggleLike = async (req, res) => {
 // -------------------------------------------------------
 exports.requestRide = async (req, res) => {
   try {
-    const { rideId } = req.params;
+    const { rideId: rawRideId } = req.params;
     const userId = req.user?.id || req.body.userId;
 
     if (!userId) {
       return res.status(400).json({ success: false, message: 'userId is required' });
+    }
+
+    if (!isValidId(userId)) {
+      return res.status(400).json({ success: false, message: 'Invalid userId' });
     }
 
     const { from, to, date, time, note, location } = req.body;
@@ -652,27 +612,37 @@ exports.requestRide = async (req, res) => {
       return res.status(400).json({ success: false, message: 'from and to are required' });
     }
 
-    // Resolve the rideId: if empty or 'create', treat as standalone request
-    let resolvedRideId = rideId;
-    if (!resolvedRideId || resolvedRideId === 'create' || resolvedRideId.trim() === '') {
-      // For standalone requests, we need a placeholder ride or just use a dummy
-      // Create with a valid rideId if one exists, or find a matching ride
-      const matchingRide = await Ride.findOne({
-        status: { $in: ['created', 'active'] },
-      }).sort({ createdAt: -1 });
-      resolvedRideId = matchingRide ? matchingRide._id : null;
-    } else {
-      // Validate the ride exists
+    const coordinates = location?.coordinates;
+    if (!Array.isArray(coordinates) || coordinates.length < 2) {
+      return res.status(400).json({ success: false, message: 'Valid location coordinates are required' });
+    }
+
+    // Resolve the rideId: if empty, treat as standalone request
+    let resolvedRideId = rawRideId;
+    if (resolvedRideId && resolvedRideId !== 'create' && resolvedRideId.trim() !== '') {
+      if (!isValidId(resolvedRideId)) {
+        return res.status(400).json({ success: false, message: 'Invalid rideId' });
+      }
+
       const ride = await Ride.findById(resolvedRideId);
       if (!ride) {
         return res.status(404).json({ success: false, message: 'Ride not found' });
       }
-    }
 
-    // Ensure location coordinates
-    let requestLocation = location;
-    if (!requestLocation || !requestLocation.coordinates || requestLocation.coordinates.length < 2) {
-      requestLocation = { type: 'Point', coordinates: [0, 0] };
+      if (ride.availableSeats <= 0) {
+        return res.status(400).json({ success: false, message: 'No seats available' });
+      }
+
+      if (ride.driverId?.toString() === userId.toString()) {
+        return res.status(400).json({ success: false, message: 'You cannot request your own ride' });
+      }
+
+      const existing = await RideRequest.findOne({ rideId: resolvedRideId, userId, status: 'requested' });
+      if (existing) {
+        return res.status(400).json({ success: false, message: 'Already requested' });
+      }
+    } else {
+      resolvedRideId = null;
     }
 
     const requestData = {
@@ -682,7 +652,10 @@ exports.requestRide = async (req, res) => {
       date: date || new Date().toISOString().split('T')[0],
       time: time || '00:00',
       note: note || '',
-      location: requestLocation,
+      location: {
+        type: 'Point',
+        coordinates: [parseFloat(coordinates[0]), parseFloat(coordinates[1])],
+      },
       status: 'requested',
     };
 
