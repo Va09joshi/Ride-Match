@@ -90,10 +90,10 @@ class _CreateRideScreenState extends State<CreateRideScreen> {
   // 🚗 Create Ride
   Future<void> _createRide() async {
     if (!_formKey.currentState!.validate()) return;
-    if (currentLat == null || currentLng == null) {
+    if (pickupLat == null || pickupLng == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Please enable location and pick current location."),
+          content: Text("Please find and select a valid pickup location."),
           backgroundColor: Colors.redAccent,
         ),
       );

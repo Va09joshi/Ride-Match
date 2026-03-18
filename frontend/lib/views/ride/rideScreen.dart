@@ -10,6 +10,8 @@ import 'package:ridematch/services/API.dart';
 import 'package:ridematch/utils/app_constant.dart';
 import 'package:ridematch/views/chats/SocketScreenchat.dart';
 import 'package:ridematch/views/ride_detail/ridedetails.dart';
+import 'package:ridematch/views/home/Screens/bottomsheets/CreateRide.dart';
+import 'package:ridematch/views/home/Screens/bottomsheets/CreateRequest.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shimmer/shimmer.dart';
 
@@ -39,7 +41,7 @@ class _RideScreenState extends State<RideScreen> {
   Position? _currentPosition;
   int _selectedTabIndex = 0;
 
-  static const double _nearbyDistanceMeters = 25000;
+  static const double _nearbyDistanceMeters = 50000;
   Timer? _autoRefreshTimer;
 
   @override
@@ -242,6 +244,30 @@ class _RideScreenState extends State<RideScreen> {
         if (myResponse.statusCode == 200) {
           final myData = jsonDecode(myResponse.body);
           myRides = _parseRides(myData['rides']);
+
+          // Fetch bookings per ride to show "booked by" names
+          if (_token != null) {
+            for (int i = 0; i < myRides.length; i++) {
+              final rideId = (myRides[i]['_id'] ?? '').toString();
+              if (rideId.isEmpty) continue;
+              try {
+                final bRes = await http.get(
+                  AppApi.uri('/api/bookings/ride/$rideId'),
+                  headers: {'Authorization': 'Bearer $_token'},
+                );
+                if (bRes.statusCode == 200) {
+                  final bData = jsonDecode(bRes.body);
+                  final bookings = bData['bookings'] as List? ?? [];
+                  final names = bookings
+                      .map((b) => (b['user']?['name'] ?? '').toString())
+                      .where((n) => n.isNotEmpty)
+                      .toList();
+                  myRides[i]['_bookedByNames'] = names;
+                  myRides[i]['_bookingsCount'] = bookings.length;
+                }
+              } catch (_) {}
+            }
+          }
         }
 
         if (_token != null) {
@@ -327,6 +353,10 @@ class _RideScreenState extends State<RideScreen> {
         if (distance == null) return true;
         return distance <= (_nearbyDistanceMeters / 1000);
       }).toList();
+
+      // Also remove rides user already booked from nearby
+      final bookedRideIds = bookedRides.map((r) => (r['_id'] ?? '').toString()).toSet();
+      nearbyRides.removeWhere((ride) => bookedRideIds.contains((ride['_id'] ?? '').toString()));
 
       nearbyRides.sort((a, b) {
         final aDistance = _distanceKm(a) ?? 9999;
@@ -448,6 +478,138 @@ class _RideScreenState extends State<RideScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Unable to cancel ride right now.')),
+      );
+    }
+  }
+
+  Future<void> _completeRide(String rideId) async {
+    if (_token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again to continue.')),
+      );
+      return;
+    }
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete Ride'),
+        content: const Text('Are you sure you want to mark this ride as completed?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, Complete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final response = await http.patch(
+        AppApi.uri('/api/rides/$rideId/complete'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_token',
+        },
+      );
+
+      final payload = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      final success =
+          response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          payload['success'] == true;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            (payload['message'] ??
+                    (success ? 'Ride completed successfully.' : 'Failed to complete ride.'))
+                .toString(),
+          ),
+        ),
+      );
+
+      if (success) {
+        await _fetchRides(isRefresh: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to complete ride right now.')),
+      );
+    }
+  }
+
+  Future<void> _startRide(String rideId) async {
+    if (_token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again to continue.')),
+      );
+      return;
+    }
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Start Journey'),
+        content: const Text('Are you sure you want to start this journey now?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not Yet'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Yes, Start!', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      final response = await http.patch(
+        AppApi.uri('/api/rides/$rideId/start'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_token',
+        },
+      );
+
+      final payload = response.body.isNotEmpty ? jsonDecode(response.body) : {};
+      final success =
+          response.statusCode >= 200 &&
+          response.statusCode < 300 &&
+          payload['success'] == true;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            (payload['message'] ??
+                    (success ? 'Journey started!' : 'Failed to start journey.'))
+                .toString(),
+          ),
+        ),
+      );
+
+      if (success) {
+        await _fetchRides(isRefresh: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start journey right now.')),
       );
     }
   }
@@ -620,11 +782,7 @@ class _RideScreenState extends State<RideScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xff113F67), Color(0xff34699A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: const Color(0xff113F67),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Row(
@@ -1026,6 +1184,44 @@ class _RideScreenState extends State<RideScreen> {
             "${car['name']} • ${car['number']} • ${car['color']}",
             style: GoogleFonts.dmSans(fontSize: 12, color: Colors.black54),
           ),
+          // Show booked-by names
+          if (ride['_bookedByNames'] != null && (ride['_bookedByNames'] as List).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.people_alt_outlined, size: 16, color: Colors.blue.shade700),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Booked by: ${(ride['_bookedByNames'] as List).join(", ")}',
+                        style: GoogleFonts.dmSans(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade800,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                'No bookings yet',
+                style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey),
+              ),
+            ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -1065,6 +1261,56 @@ class _RideScreenState extends State<RideScreen> {
               ),
             ],
           ),
+          if (status == 'created' || status == 'active')
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _startRide((ride['_id'] ?? '').toString()),
+                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade600,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  label: Text(
+                    'Start Journey',
+                    style: GoogleFonts.dmSans(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          if (status == 'in_progress')
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _completeRide((ride['_id'] ?? '').toString()),
+                  icon: const Icon(Icons.check_circle_outline, color: Colors.white),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  label: Text(
+                    'End Journey',
+                    style: GoogleFonts.dmSans(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

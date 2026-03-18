@@ -27,7 +27,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  static const double _nearbyDistanceMeters = 40000; // 40 km
+  static const double _nearbyDistanceMeters = 50000; // 50 km boundary
 
   GoogleMapController? mapController;
   LatLng? _currentPosition;
@@ -239,12 +239,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   LatLng? _extractRideLocation(Map<String, dynamic> ride) {
-    final fromLat = double.tryParse((ride['fromLat'] ?? '').toString());
-    final fromLong = double.tryParse((ride['fromLong'] ?? '').toString());
-    if (fromLat != null && fromLong != null) {
-      return LatLng(fromLat, fromLong);
-    }
-
+    // 1. Prefer pickupLocation (from create ride form)
     final pickupLat = ride['pickupLocation']?['lat'];
     final pickupLng = ride['pickupLocation']?['lng'];
     if (pickupLat != null && pickupLng != null) {
@@ -254,11 +249,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
+    // 2. Fallback to location.coordinates (GeoJSON)
     final coordinates = ride['location']?['coordinates'];
     if (coordinates is List && coordinates.length >= 2) {
       final lng = (coordinates[0] as num).toDouble();
       final lat = (coordinates[1] as num).toDouble();
       return LatLng(lat, lng);
+    }
+
+    // 3. Fallback to fromLat/fromLong
+    final fromLat = double.tryParse((ride['fromLat'] ?? '').toString());
+    final fromLong = double.tryParse((ride['fromLong'] ?? '').toString());
+    if (fromLat != null && fromLong != null) {
+      return LatLng(fromLat, fromLong);
     }
 
     return null;
@@ -293,11 +296,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       final isOwnRide = driverId == currentUserId;
+      if (isOwnRide) continue; // Don't show own rides on the map
       if (!_isUpcomingRide(ride)) continue;
 
       final seats =
           int.tryParse((ride['availableSeats'] ?? '0').toString()) ?? 0;
-      if (!isOwnRide && seats <= 0) continue;
+      if (seats <= 0) continue;
 
       final rideFrom = (ride['from'] ?? '').toString().toLowerCase();
       final rideTo = (ride['to'] ?? '').toString().toLowerCase();
@@ -308,7 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       final ridePos = _extractRideLocation(ride);
       if (ridePos == null) continue;
-      if (!isOwnRide && !_isNearby(ridePos)) continue;
+      if (!_isNearby(ridePos)) continue;
 
       final markerId = MarkerId('ride_${ride['_id']}');
 
@@ -320,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           infoWindow: InfoWindow(
             title: "${ride['from']} → ${ride['to']}",
             snippet:
-                "${isOwnRide ? 'Your Ride • ' : ''}₹${ride['amount']} • ${ride['availableSeats']} seats • ${ride['date']} ${ride['time']}",
+                "₹${ride['amount']} • ${ride['availableSeats']} seats • ${ride['date']} ${ride['time']}",
             onTap: () => _showRideDetail(ride),
           ),
           onTap: () => _onMarkerTap(ride),
@@ -470,7 +474,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     "Comfortable ride with verified driver")
                 .toString();
 
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -787,6 +791,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _drawerTile(IconData icon, String title, VoidCallback onTap) {
+    return ListTile(
+      leading: Icon(icon, color: const Color(0xff113F67)),
+      title: Text(title, style: GoogleFonts.dmSans(fontSize: 15, fontWeight: FontWeight.w500)),
+      trailing: const Icon(Icons.chevron_right, color: Colors.grey, size: 20),
+      onTap: onTap,
+      dense: true,
+      visualDensity: const VisualDensity(vertical: -1),
+    );
+  }
+
   void openCreateLocationRequest(String rideId) {
     Navigator.push(
       context,
@@ -800,10 +815,65 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      drawer: Drawer(
+        backgroundColor: Colors.white,
+        child: Column(
+          children: [
+            UserAccountsDrawerHeader(
+              accountName: Text(
+                userName ?? "RideMatch User",
+                style: GoogleFonts.dmSans(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
+              ),
+              accountEmail: Text(
+                fullAddress ?? "Welcome to RideMatch",
+                style: GoogleFonts.dmSans(fontSize: 13, color: Colors.white70),
+                overflow: TextOverflow.ellipsis,
+              ),
+              currentAccountPicture: CircleAvatar(
+                backgroundColor: Colors.white,
+                child: Text(
+                  userName != null && userName!.isNotEmpty ? userName![0].toUpperCase() : "U",
+                  style: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold, color: Color(0xff113F67)),
+                ),
+              ),
+              decoration: const BoxDecoration(
+                color: Color(0xff113F67),
+              ),
+            ),
+            _drawerTile(Icons.person_outline, "My Profile", () { Navigator.pop(context); }),
+            _drawerTile(Icons.directions_car_outlined, "My Rides", () { Navigator.pop(context); }),
+            _drawerTile(Icons.history, "Ride History", () { Navigator.pop(context); }),
+            _drawerTile(Icons.payment_outlined, "Payments", () { Navigator.pop(context); }),
+            _drawerTile(Icons.settings_outlined, "Settings", () { Navigator.pop(context); }),
+            const Divider(height: 1),
+            _drawerTile(Icons.info_outline, "About RideMatch", () { Navigator.pop(context); }),
+            _drawerTile(Icons.description_outlined, "Terms & Privacy", () { Navigator.pop(context); }),
+            _drawerTile(Icons.star_outline, "Rate Us", () { Navigator.pop(context); }),
+            _drawerTile(Icons.help_outline, "Help & Support", () { Navigator.pop(context); }),
+            const Spacer(),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.redAccent),
+              title: Text('Logout', style: GoogleFonts.dmSans(fontSize: 16, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              onTap: () async {
+                SharedPreferences prefs = await SharedPreferences.getInstance();
+                await prefs.clear();
+                if (mounted) {
+                  Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                }
+              },
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16, top: 8),
+              child: Text("RideMatch v1.0.0", style: GoogleFonts.dmSans(fontSize: 12, color: Colors.grey)),
+            ),
+          ],
+        ),
+      ),
       appBar: AppBar(
         backgroundColor: const Color(0xff113F67),
+        iconTheme: const IconThemeData(color: Colors.white),
         toolbarHeight: 75,
-        automaticallyImplyLeading: false,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1046,6 +1116,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
         ],
       ),
+
+      // Booked rides indicator chip
+      bottomNavigationBar: ridePosts.isNotEmpty
+          ? Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: GestureDetector(
+                onTap: () {
+                  if (ridePosts.isNotEmpty) {
+                    _showRideDetail(ridePosts.first);
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xff113F67),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.directions_car, color: Colors.white, size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          "${ridePosts.length} ride${ridePosts.length > 1 ? 's' : ''} nearby",
+                          style: GoogleFonts.dmSans(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          "View All",
+                          style: GoogleFonts.dmSans(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: Padding(
         padding: const EdgeInsets.only(bottom: 100),

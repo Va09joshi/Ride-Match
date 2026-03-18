@@ -165,8 +165,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       Polyline(
         polylineId: const PolylineId("route"),
         points: [pickup, drop],
-        width: 5,
-        color: Colors.orangeAccent,
+        width: 4,
+        color: const Color(0xff113F67),
+        patterns: [PatternItem.dash(20), PatternItem.gap(10)],
       ),
     );
 

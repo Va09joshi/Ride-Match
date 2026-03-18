@@ -120,7 +120,7 @@ class _PostScreenState extends State<PostScreen> {
             queryParameters: {
               'longitude': longitude.toString(),
               'latitude': latitude.toString(),
-              'maxDistance': '40000',
+              'maxDistance': '50000', // 50km radius as requested
             },
           ),
           headers: {

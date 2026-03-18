@@ -27,7 +27,7 @@ class LocationAutocomplete extends StatefulWidget {
 
 class _LocationAutocompleteState extends State<LocationAutocomplete> {
   static const Color _primary = Color(0xff113F67);
-  List<dynamic> _suggestions = [];
+  List<Map<String, dynamic>> _suggestions = [];
   bool _isLoading = false;
 
   Future<void> _fetchSuggestions(String query) async {
@@ -41,7 +41,7 @@ class _LocationAutocompleteState extends State<LocationAutocomplete> {
       final response = await http.get(url, headers: {'User-Agent': 'RideMatchApp/1.0'});
       if (response.statusCode == 200) {
         setState(() {
-          _suggestions = json.decode(response.body);
+          _suggestions = List<Map<String, dynamic>>.from(json.decode(response.body));
         });
       }
     } catch (_) {}
@@ -52,10 +52,10 @@ class _LocationAutocompleteState extends State<LocationAutocomplete> {
 
   @override
   Widget build(BuildContext context) {
-    return Autocomplete<dynamic>(
+    return Autocomplete<Map<String, dynamic>>(
       optionsBuilder: (TextEditingValue textEditingValue) async {
         if (textEditingValue.text.isEmpty) {
-          return const Iterable<dynamic>.empty();
+          return const Iterable<Map<String, dynamic>>.empty();
         }
         await _fetchSuggestions(textEditingValue.text);
         return _suggestions;
@@ -125,7 +125,7 @@ class _LocationAutocompleteState extends State<LocationAutocomplete> {
                 shrinkWrap: true,
                 itemCount: options.length,
                 itemBuilder: (BuildContext context, int index) {
-                  final dynamic option = options.elementAt(index);
+                  final Map<String, dynamic> option = options.elementAt(index);
                   return ListTile(
                     title: Text(
                       option['display_name'] ?? '',

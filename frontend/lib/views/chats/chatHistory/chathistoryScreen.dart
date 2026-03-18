@@ -20,6 +20,10 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
   List<Map<String, dynamic>> chatList = [];
   bool isLoading = true;
 
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _filteredChatList = [];
+
   String _formatTime(dynamic rawTime) {
     if (rawTime == null || rawTime.toString().isEmpty) return "";
     try {
@@ -69,8 +73,32 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
     }
 
     if (mounted) {
-      setState(() => isLoading = false);
+      setState(() {
+        isLoading = false;
+        _filterChats(_searchController.text);
+      });
     }
+  }
+
+  void _filterChats(String query) {
+    if (query.isEmpty) {
+      setState(() {
+        _filteredChatList = List.from(chatList);
+      });
+    } else {
+      setState(() {
+        _filteredChatList = chatList.where((chat) {
+          final name = chat["name"].toString().toLowerCase();
+          return name.contains(query.toLowerCase());
+        }).toList();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -80,24 +108,50 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        title: Text(
-          "Chats",
-          style: GoogleFonts.poppins(
-            color: const Color(0xff09205f),
-            fontWeight: FontWeight.w600,
-            fontSize: 22,
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: "Search chats...",
+                  border: InputBorder.none,
+                  hintStyle: GoogleFonts.poppins(color: Colors.grey),
+                ),
+                style: GoogleFonts.poppins(color: const Color(0xff09205f)),
+                onChanged: _filterChats,
+              )
+            : Text(
+                "Chats",
+                style: GoogleFonts.poppins(
+                  color: const Color(0xff09205f),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 22,
+                ),
+              ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              _isSearching ? Icons.close : Icons.search_rounded,
+              color: const Color(0xff09205f),
+            ),
+            onPressed: () {
+              setState(() {
+                if (_isSearching) {
+                  _isSearching = false;
+                  _searchController.clear();
+                  _filterChats("");
+                } else {
+                  _isSearching = true;
+                }
+              });
+            },
           ),
-        ),
-        actions: const [
-          Icon(Icons.search_rounded, color: Color(0xff09205f)),
-          SizedBox(width: 12),
-          Icon(Icons.more_vert_rounded, color: Color(0xff09205f)),
-          SizedBox(width: 12),
+          const SizedBox(width: 8),
         ],
       ),
       body: isLoading
           ? _buildShimmerList()
-          : chatList.isEmpty
+          : _filteredChatList.isEmpty
           ? const Center(
               child: Text(
                 "No chats available",
@@ -106,9 +160,9 @@ class _ChatHistoryScreenState extends State<ChatHistoryScreen> {
             )
           : ListView.builder(
               physics: const BouncingScrollPhysics(),
-              itemCount: chatList.length,
+              itemCount: _filteredChatList.length,
               itemBuilder: (context, index) {
-                final chat = chatList[index];
+                final chat = _filteredChatList[index];
                 return _chatTile(chat);
               },
             ),
