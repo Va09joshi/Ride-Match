@@ -14,6 +14,7 @@ const {
   getIncomingRequestsForDriver,
   cancelRide,
   completeRide,
+  startRide,
 } = require('../controllers/ridecontroller');
 
 // Create ride (Driver)
@@ -31,6 +32,7 @@ router.get('/user/:userId', getUserRides);
 // Driver ride actions
 router.patch('/:rideId/cancel', auth, cancelRide);
 router.patch('/:rideId/complete', auth, completeRide);
+router.patch('/:rideId/start', auth, startRide);
 
 // Send ride request
 router.post('/:rideId/request', auth, requestRide);

@@ -174,4 +174,25 @@ const getMyBookings = async (req, res) => {
     }
 };
 
-module.exports = { bookRide, getMyBookings };
+const getRideBookings = async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        if (!rideId) {
+            return res.status(400).json({ success: false, message: 'rideId is required' });
+        }
+
+        const bookings = await Booking.find({ ride: rideId, status: 'booked' })
+            .populate('user', 'name email phone profileImage')
+            .sort({ createdAt: -1 });
+
+        return res.status(200).json({
+            success: true,
+            count: bookings.length,
+            bookings,
+        });
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+module.exports = { bookRide, getMyBookings, getRideBookings };

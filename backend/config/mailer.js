@@ -63,4 +63,8 @@ const sendMail = async ({ to, subject, text, html }) => {
   });
 };
 
-module.exports = { sendMail };
+const resetTransporter = () => {
+  transporter = null;
+};
+
+module.exports = { sendMail, resetTransporter };

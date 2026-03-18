@@ -223,18 +223,32 @@ const sendOTP = async (req, res) => {
     await ResetToken.deleteMany({ email: normalizedEmail });
     await OTP.create({ email: normalizedEmail, otp: hashedOtp, purpose: 'password_reset' });
 
-    await sendPasswordResetOtpEmail(normalizedEmail, rawOtp, user.name);
+    // Try sending with retry (reset transporter cache on first failure)
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await sendPasswordResetOtpEmail(normalizedEmail, rawOtp, user.name);
+        return res.status(200).json({ success: true, message: "OTP sent successfully" });
+      } catch (sendErr) {
+        lastErr = sendErr;
+        console.error(`Email send attempt ${attempt + 1} failed:`, sendErr.message || sendErr.code);
+        // Reset the transporter cache so next attempt creates fresh connection
+        try { require('../config/mailer').resetTransporter?.(); } catch (_) {}
+      }
+    }
 
-    res.status(200).json({ success: true, message: "OTP sent successfully" });
-  } catch (err) {
-    console.error(err);
-    const transportErrorCodes = ['ENETUNREACH', 'ETIMEDOUT', 'ESOCKET', 'ECONNECTION'];
-    const isTransportError = transportErrorCodes.includes(err?.code);
+    // Both attempts failed
+    console.error('All email attempts failed:', lastErr);
+    const transportErrorCodes = ['ENETUNREACH', 'ETIMEDOUT', 'ESOCKET', 'ECONNECTION', 'ECONNREFUSED'];
+    const isTransportError = transportErrorCodes.includes(lastErr?.code);
     const message = isTransportError
       ? 'Email service is temporarily unavailable. Please try again in a few minutes.'
-      : (err?.message || 'Failed to send OTP');
+      : (lastErr?.message || 'Failed to send OTP');
 
     res.status(500).json({ success: false, message });
+  } catch (err) {
+    console.error('sendOTP error:', err);
+    res.status(500).json({ success: false, message: err?.message || 'Failed to send OTP' });
   }
 };
 

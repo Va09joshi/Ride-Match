@@ -319,6 +319,42 @@ exports.completeRide = async (req, res) => {
 };
 
 // -------------------------------------------------------
+// START RIDE (DRIVER)
+// -------------------------------------------------------
+exports.startRide = async (req, res) => {
+  try {
+    const { rideId } = req.params;
+    const authUserId = req.user?.id;
+
+    if (!isValidId(rideId)) {
+      return res.status(400).json({ success: false, message: 'Invalid rideId' });
+    }
+
+    const ride = await Ride.findById(rideId);
+    if (!ride) {
+      return res.status(404).json({ success: false, message: 'Ride not found' });
+    }
+
+    if (!authUserId || ride.driverId.toString() !== authUserId.toString()) {
+      return res.status(403).json({ success: false, message: 'Only the driver can start this ride' });
+    }
+
+    if (ride.status === 'in_progress') {
+      return res.status(200).json({ success: true, message: 'Ride already in progress', ride });
+    }
+
+    ride.status = 'in_progress';
+    ride.startedAt = new Date();
+    await ride.save();
+
+    return res.status(200).json({ success: true, message: 'Ride started successfully', ride });
+  } catch (error) {
+    console.error('Error starting ride:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// -------------------------------------------------------
 // CREATE RIDE REQUEST
 // -------------------------------------------------------
 exports.requestRide = async (req, res) => {
