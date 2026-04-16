@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/github/last-commit/Va09joshi/Ride-Match?style=for-the-badge" alt="Last Commit" />
 </p>
 
-> Note: The animated header/typing visuals use external SVG services for rendering.
+> Note: The animated header/typing visuals use external SVG services for rendering. If those services are temporarily unavailable, only those images may not render; all README text sections and setup instructions still work normally.
 
 ---
 
