@@ -20,28 +20,33 @@
 
 ## 🚗 Overview
 
-**Ride Match** is a full-stack ridesharing app that connects drivers and passengers for affordable and efficient travel.
+**Ride Match** is a full-stack ridesharing platform that helps drivers and passengers connect quickly, chat in real time, and complete trips with a smooth in-app experience.
 
 ### ✨ Core Highlights
-- 🔐 JWT-based authentication
-- 🗺️ Live location + map experience
+- 🔐 Secure JWT-based authentication and role-aware access
+- 🗺️ Live location tracking with map-based ride flow
 - 💬 Real-time chat using Socket.IO
-- 💳 Payment integration support
-- ⭐ Ratings and profile management
+- 💳 Payment-ready integration support
+- ⭐ Ratings, profiles, and trust-building features
 
 ---
 
 ## 🧰 Tech Stack
 
-### Frontend
-- Flutter (Dart)
-- Google Maps integration
-- Socket.IO client
+| Layer | Technologies |
+|---|---|
+| **Frontend** | Flutter (Dart), Google Maps, Socket.IO client |
+| **Backend** | Node.js, Express, MongoDB, Mongoose, Socket.IO |
 
-### Backend
-- Node.js + Express
-- MongoDB + Mongoose
-- Socket.IO
+---
+
+## ✅ Key Capabilities
+
+- User signup/login with token-based sessions
+- Ride discovery and matching workflow
+- In-app communication between riders and drivers
+- Profile updates and rating support
+- Scalable client-server architecture for real-time updates
 
 ---
 
@@ -67,9 +72,10 @@ Ride-Match/
 ## ⚙️ Getting Started
 
 ### Prerequisites
-- Node.js 16+
-- Flutter 3+
-- MongoDB
+- Node.js 16 or later
+- Flutter 3 or later
+- MongoDB instance (local or cloud)
+- npm (bundled with Node.js)
 
 ### 1) Clone Repository
 ```bash
@@ -77,13 +83,13 @@ git clone https://github.com/Va09joshi/Ride-Match.git
 cd Ride-Match
 ```
 
-### 2) Setup Backend
+### 2) Configure Backend
 ```bash
 cd backend
 npm install
 ```
 
-Create `backend/.env`:
+Create `/backend/.env`:
 ```env
 MONGO_URI=your_mongodb_connection_string
 JWT_SECRET=your_jwt_secret
@@ -92,17 +98,19 @@ NODE_ENV=development
 IMGBB_API_KEY=your_imgbb_api_key
 ```
 
-Run backend:
+Start backend server:
 ```bash
 npm start
 ```
 
-### 3) Setup Frontend
+### 3) Configure & Run Frontend
 ```bash
 cd ../frontend
 flutter pub get
 flutter run
 ```
+
+> Tip: Keep both backend and frontend running in separate terminals for local development.
 
 ---
 
@@ -110,8 +118,8 @@ flutter run
 
 1. Fork the repository
 2. Create a branch: `git checkout -b feature/your-feature`
-3. Commit changes: `git commit -m "feat: add your feature"`
-4. Push branch and open a Pull Request
+3. Make your changes and commit: `git commit -m "feat: add your feature"`
+4. Push your branch and open a Pull Request
 
 ---
 
