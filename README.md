@@ -14,6 +14,8 @@
   <img src="https://img.shields.io/github/last-commit/Va09joshi/Ride-Match?style=for-the-badge" alt="Last Commit" />
 </p>
 
+> Note: The animated header/typing visuals use external SVG services for rendering.
+
 ---
 
 ## 🚗 Overview
